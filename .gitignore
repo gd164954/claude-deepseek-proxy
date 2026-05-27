@@ -1,0 +1,16 @@
+# Local runtime logs
+*.log
+
+# Local backups can contain old configs or credentials
+backups/
+
+# Local environment files
+.env
+.env.*
+
+# OS/editor noise
+Thumbs.db
+Desktop.ini
+.DS_Store
+.vscode/
+.idea/
