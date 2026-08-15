@@ -1,12 +1,47 @@
 import http from "node:http";
 import fs from "node:fs";
 import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 
-export const MODEL_MAP = {
+const DEFAULT_MODEL_MAP = {
   "claude-opus-4-5": "deepseek-v4-pro",
   "claude-sonnet-4-5": "deepseek-v4-flash",
 };
+
+export function loadModelMap(rawValue = process.env.MODEL_MAP_JSON) {
+  if (!rawValue) return { ...DEFAULT_MODEL_MAP };
+
+  let parsed;
+  try {
+    parsed = JSON.parse(rawValue);
+  } catch (error) {
+    throw new Error(`Invalid MODEL_MAP_JSON: ${error.message}`);
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Invalid MODEL_MAP_JSON: expected a JSON object.");
+  }
+
+  const entries = Object.entries(parsed);
+  if (entries.length === 0 || entries.length > 32) {
+    throw new Error("Invalid MODEL_MAP_JSON: expected between 1 and 32 mappings.");
+  }
+
+  const validatedEntries = [];
+  for (const [alias, target] of entries) {
+    if (
+      !alias || alias.length > 128 || /[\x00-\x20]/.test(alias) ||
+      typeof target !== "string" || !target || target.length > 128 || /[\x00-\x20]/.test(target)
+    ) {
+      throw new Error(`Invalid MODEL_MAP_JSON entry for alias: ${JSON.stringify(alias)}.`);
+    }
+    validatedEntries.push([alias, target]);
+  }
+  return Object.fromEntries(validatedEntries);
+}
+
+export const MODEL_MAP = Object.freeze(loadModelMap());
 
 const ALIASES = Object.keys(MODEL_MAP);
 
@@ -15,25 +50,56 @@ const HOST = process.env.HOST || "127.0.0.1";
 const UPSTREAM_BASE = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/anthropic").replace(/\/+$/, "");
 const API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const PROXY_API_KEY = process.env.PROXY_API_KEY || "";
-const CORS_ORIGIN = process.env.CORS_ORIGIN || "*";
+const CORS_ORIGINS = (process.env.CORS_ORIGIN || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 const LOG_FILE = process.env.LOG_FILE || "";
+const LOG_MAX_BYTES = Number(process.env.LOG_MAX_BYTES || 1024 * 1024);
+const LOG_BACKUPS = Number(process.env.LOG_BACKUPS || 3);
+const LOG_COUNT_TOKENS = process.env.LOG_COUNT_TOKENS === "true";
+const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 25 * 1024 * 1024);
+const UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS || 120_000);
 const TRANSFORM_RESPONSES = process.env.TRANSFORM_RESPONSES === "true";
 const FILTER_THINKING_BLOCKS = process.env.FILTER_THINKING_BLOCKS === "true";
 const FORCE_UPSTREAM_NON_STREAM = process.env.FORCE_UPSTREAM_NON_STREAM === "true";
-const ALLOW_LOCALHOST_NO_AUTH = process.env.ALLOW_LOCALHOST_NO_AUTH === "true";
 
+if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
+  throw new Error(`Invalid PORT: ${process.env.PORT}`);
+}
+if (!Number.isFinite(MAX_BODY_BYTES) || MAX_BODY_BYTES <= 0) {
+  throw new Error(`Invalid MAX_BODY_BYTES: ${process.env.MAX_BODY_BYTES}`);
+}
+if (!Number.isFinite(UPSTREAM_TIMEOUT_MS) || UPSTREAM_TIMEOUT_MS <= 0) {
+  throw new Error(`Invalid UPSTREAM_TIMEOUT_MS: ${process.env.UPSTREAM_TIMEOUT_MS}`);
+}
 function isReadOnlyMethod(method) {
   return method === "GET" || method === "HEAD";
 }
 
-function addCorsHeaders(headers) {
-  return {
-    "access-control-allow-origin": CORS_ORIGIN,
-    "access-control-allow-methods": "GET,POST,OPTIONS",
-    "access-control-allow-headers": "authorization,content-type,x-api-key,anthropic-version,anthropic-beta",
-    ...headers,
-  };
+function originIsAllowed(origin) {
+  return !origin || CORS_ORIGINS.includes("*") || CORS_ORIGINS.includes(origin);
 }
+
+function applyCorsHeaders(req, res) {
+  const origin = headerValue(req.headers, "origin");
+  if (!origin || !originIsAllowed(origin)) return;
+
+  res.setHeader("access-control-allow-origin", CORS_ORIGINS.includes("*") ? "*" : origin);
+  res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
+  res.setHeader("access-control-allow-headers", "authorization,content-type,x-api-key,anthropic-version,anthropic-beta");
+  if (!CORS_ORIGINS.includes("*")) res.setHeader("vary", "Origin");
+}
+
+let logFileBytes = (() => {
+  if (!LOG_FILE) return 0;
+  try {
+    return fs.statSync(LOG_FILE).size;
+  } catch {
+    return 0;
+  }
+})();
+let logWriteQueue = Promise.resolve();
 
 function logLine(level, message, extra = undefined) {
   const suffix = extra === undefined ? "" : ` ${JSON.stringify(extra)}`;
@@ -46,10 +112,50 @@ function logLine(level, message, extra = undefined) {
   }
 
   if (LOG_FILE) {
-    fs.appendFile(LOG_FILE, `${line}\n`, (error) => {
-      if (error) console.error(`${new Date().toISOString()} ERROR failed_to_write_log ${error.message}`);
-    });
+    const entry = `${line}\n`;
+    const entryBytes = Buffer.byteLength(entry);
+    logWriteQueue = logWriteQueue
+      .then(async () => {
+        await rotateLogIfNeeded(entryBytes);
+        await fs.promises.appendFile(LOG_FILE, entry);
+        logFileBytes += entryBytes;
+      })
+      .catch((error) => {
+        console.error(`${new Date().toISOString()} ERROR failed_to_write_log ${error.message}`);
+      });
   }
+}
+
+async function rotateLogIfNeeded(incomingBytes = 0) {
+  if (!LOG_FILE || !Number.isFinite(LOG_MAX_BYTES) || LOG_MAX_BYTES <= 0) return;
+  if (logFileBytes + incomingBytes <= LOG_MAX_BYTES) return;
+
+  const backupCount = Number.isFinite(LOG_BACKUPS) && LOG_BACKUPS > 0 ? Math.floor(LOG_BACKUPS) : 0;
+  if (backupCount === 0) {
+    await fs.promises.writeFile(LOG_FILE, "");
+    logFileBytes = 0;
+    return;
+  }
+
+  const oldest = `${LOG_FILE}.${backupCount}`;
+  await fs.promises.rm(oldest, { force: true });
+
+  for (let index = backupCount - 1; index >= 1; index--) {
+    const from = `${LOG_FILE}.${index}`;
+    const to = `${LOG_FILE}.${index + 1}`;
+    try {
+      await fs.promises.rename(from, to);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+  }
+
+  try {
+    await fs.promises.rename(LOG_FILE, `${LOG_FILE}.1`);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  logFileBytes = 0;
 }
 
 function headerValue(headers, name) {
@@ -77,10 +183,10 @@ function describeError(error) {
 
 function sendJson(res, status, payload) {
   const body = JSON.stringify(payload);
-  res.writeHead(status, addCorsHeaders({
+  res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "content-length": Buffer.byteLength(body),
-  }));
+  });
   res.end(body);
 }
 
@@ -88,13 +194,30 @@ function remoteAddress(req) {
   return req.socket?.remoteAddress || "";
 }
 
-function isLocalhostAddress(address) {
-  return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
+class HttpError extends Error {
+  constructor(statusCode, publicMessage) {
+    super(publicMessage);
+    this.name = "HttpError";
+    this.statusCode = statusCode;
+    this.publicMessage = publicMessage;
+  }
 }
 
 async function readBody(req) {
+  const declaredLength = Number(headerValue(req.headers, "content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
+    throw new HttpError(413, `Request body exceeds the ${MAX_BODY_BYTES}-byte limit.`);
+  }
+
   const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
+  let totalBytes = 0;
+  for await (const chunk of req) {
+    totalBytes += chunk.length;
+    if (totalBytes > MAX_BODY_BYTES) {
+      throw new HttpError(413, `Request body exceeds the ${MAX_BODY_BYTES}-byte limit.`);
+    }
+    chunks.push(chunk);
+  }
   return Buffer.concat(chunks);
 }
 
@@ -275,7 +398,7 @@ async function sendTransformedJson(upstream, res, responseHeaders, aliasModel) {
     payload = JSON.parse(rawText);
   } catch {
     const body = Buffer.from(rawText);
-    res.writeHead(upstream.status, addCorsHeaders({ ...responseHeaders, "content-length": String(body.length) }));
+    res.writeHead(upstream.status, { ...responseHeaders, "content-length": String(body.length) });
     return res.end(body);
   }
 
@@ -288,10 +411,10 @@ async function sendTransformedJson(upstream, res, responseHeaders, aliasModel) {
 }
 
 function baseResponseHeaders(contentType) {
-  return addCorsHeaders({
+  return {
     "content-type": contentType,
     "cache-control": "no-cache",
-  });
+  };
 }
 
 function textFromMessagePayload(payload) {
@@ -325,6 +448,19 @@ async function sendJsonAsSse(upstream, res, aliasModel, startedAt, path) {
   }
 
   const message = filterThinkingFromJson(payload, aliasModel);
+  const unsupportedBlocks = (Array.isArray(message.content) ? message.content : [])
+    .filter((block) => block?.type !== "text")
+    .map((block) => block?.type || "unknown");
+  if (unsupportedBlocks.length > 0) {
+    logLine("ERROR", "synthetic_sse_unsupported_content", { path, content_types: unsupportedBlocks });
+    return sendJson(res, 502, {
+      error: {
+        type: "proxy_error",
+        message: `Cannot safely convert non-stream content blocks to SSE: ${unsupportedBlocks.join(", ")}.`,
+      },
+    });
+  }
+
   const text = textFromMessagePayload(message);
   const id = message.id || `msg_${Date.now()}`;
   const usage = message.usage || {};
@@ -383,13 +519,19 @@ function credentialFromRequest(req) {
 }
 
 function isAuthorized(req) {
-  if (!PROXY_API_KEY || credentialFromRequest(req) === PROXY_API_KEY) return true;
-  return ALLOW_LOCALHOST_NO_AUTH && isLocalhostAddress(remoteAddress(req));
+  return credentialFromRequest(req) === PROXY_API_KEY;
+}
+
+function estimateTokensFromString(value) {
+  const cjkPattern = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu;
+  const cjkCount = value.match(cjkPattern)?.length || 0;
+  const remaining = value.replace(cjkPattern, "");
+  return cjkCount + Math.ceil(remaining.length / 4);
 }
 
 function estimateTokensFromValue(value) {
   if (value === null || value === undefined) return 0;
-  if (typeof value === "string") return Math.max(1, Math.ceil(value.length / 4));
+  if (typeof value === "string") return value.length === 0 ? 0 : Math.max(1, estimateTokensFromString(value));
   if (typeof value === "number" || typeof value === "boolean") return 1;
   if (Array.isArray(value)) return value.reduce((sum, item) => sum + estimateTokensFromValue(item), 0);
   if (typeof value === "object") return Object.values(value).reduce((sum, item) => sum + estimateTokensFromValue(item), 0);
@@ -407,21 +549,35 @@ function handleCountTokens(rawBody, contentType, res) {
     });
   }
 
-  const estimated = Math.max(1, estimateTokensFromValue(json.messages || json));
+  const estimated = Math.max(
+    1,
+    estimateTokensFromValue(json.system) +
+      estimateTokensFromValue(json.messages) +
+      estimateTokensFromValue(json.tools),
+  );
   return sendJson(res, 200, { input_tokens: estimated });
 }
 
 async function handleProxy(req, res) {
   const startedAt = Date.now();
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+  const origin = headerValue(req.headers, "origin");
 
-  if (req.method === "OPTIONS") {
-    res.writeHead(204, addCorsHeaders({}));
-    return res.end();
+  if (!originIsAllowed(origin)) {
+    logLine("WARN", "origin_rejected", { method: req.method, path: url.pathname, origin, remote: remoteAddress(req) });
+    return sendJson(res, 403, {
+      error: {
+        type: "permission_error",
+        message: "This browser origin is not allowed to access the local proxy.",
+      },
+    });
   }
 
-  if (req.method === "GET" && url.pathname === "/health") {
-    return sendJson(res, 200, { ok: true, upstream: UPSTREAM_BASE, aliases: MODEL_MAP });
+  applyCorsHeaders(req, res);
+
+  if (req.method === "OPTIONS") {
+    res.writeHead(204);
+    return res.end();
   }
 
   if (!isAuthorized(req)) {
@@ -434,9 +590,13 @@ async function handleProxy(req, res) {
     });
   }
 
+  if (req.method === "GET" && url.pathname === "/health") {
+    return sendJson(res, 200, { ok: true });
+  }
+
   if (req.method === "POST" && url.pathname === "/v1/messages/count_tokens") {
     const rawBody = await readBody(req);
-    logLine("INFO", "count_tokens_local", { remote: remoteAddress(req) });
+    if (LOG_COUNT_TOKENS) logLine("INFO", "count_tokens_local", { remote: remoteAddress(req) });
     return handleCountTokens(rawBody, req.headers["content-type"], res);
   }
 
@@ -479,56 +639,88 @@ async function handleProxy(req, res) {
   if (didForceNonStream) logLine("INFO", "force_upstream_non_stream", { path: url.pathname, model: aliasModel });
 
   const upstreamUrl = `${UPSTREAM_BASE}${url.pathname}${url.search}`;
-  const upstream = await fetch(upstreamUrl, {
-    method: req.method,
-    headers: buildHeaders(req),
-    body: isReadOnlyMethod(req.method) ? undefined : body,
-  });
+  const abortController = new AbortController();
+  let upstreamTimedOut = false;
+  const timeout = setTimeout(() => {
+    upstreamTimedOut = true;
+    abortController.abort(new Error(`Upstream request timed out after ${UPSTREAM_TIMEOUT_MS} ms.`));
+  }, UPSTREAM_TIMEOUT_MS);
+  timeout.unref?.();
 
-  if (upstream.status >= 400) {
-    logLine("WARN", "upstream_error", { status: upstream.status, path: url.pathname, duration_ms: Date.now() - startedAt });
-  } else {
-    logLine("INFO", "upstream_response", { status: upstream.status, path: url.pathname, duration_ms: Date.now() - startedAt });
-  }
+  const abortForClientDisconnect = () => {
+    if (!res.writableEnded) abortController.abort(new Error("Client disconnected."));
+  };
+  req.once("aborted", abortForClientDisconnect);
+  res.once("close", abortForClientDisconnect);
 
-  const responseHeaders = {};
-  upstream.headers.forEach((value, key) => {
-    if (!["content-encoding", "content-length", "transfer-encoding", "connection"].includes(key.toLowerCase())) {
-      responseHeaders[key] = value;
+  try {
+    const upstream = await fetch(upstreamUrl, {
+      method: req.method,
+      headers: buildHeaders(req),
+      body: isReadOnlyMethod(req.method) ? undefined : body,
+      signal: abortController.signal,
+    });
+
+    if (upstream.status >= 400) {
+      logLine("WARN", "upstream_error", { status: upstream.status, path: url.pathname, duration_ms: Date.now() - startedAt });
+    } else {
+      logLine("INFO", "upstream_response", { status: upstream.status, path: url.pathname, duration_ms: Date.now() - startedAt });
     }
-  });
 
-  const contentType = upstream.headers.get("content-type") || "";
-  const shouldTransformMessages = TRANSFORM_RESPONSES && url.pathname === "/v1/messages" && aliasModel;
-  if (shouldTransformMessages && didForceNonStream && contentType.includes("application/json")) {
-    return sendJsonAsSse(upstream, res, aliasModel, startedAt, url.pathname);
+    const responseHeaders = {};
+    upstream.headers.forEach((value, key) => {
+      if (!["content-encoding", "content-length", "transfer-encoding", "connection"].includes(key.toLowerCase())) {
+        responseHeaders[key] = value;
+      }
+    });
+
+    const contentType = upstream.headers.get("content-type") || "";
+    const shouldTransformMessages = TRANSFORM_RESPONSES && url.pathname === "/v1/messages" && aliasModel;
+    if (shouldTransformMessages && didForceNonStream && contentType.includes("application/json")) {
+      return await sendJsonAsSse(upstream, res, aliasModel, startedAt, url.pathname);
+    }
+
+    if (shouldTransformMessages && contentType.includes("text/event-stream") && upstream.body) {
+      res.writeHead(upstream.status, baseResponseHeaders("text/event-stream; charset=utf-8"));
+      const transformed = Readable.from(transformSseStream(upstream.body, aliasModel));
+      try {
+        await pipeline(transformed, res);
+        logLine("INFO", "sse_complete", { path: url.pathname, duration_ms: Date.now() - startedAt });
+      } catch (error) {
+        logLine("ERROR", "sse_transform_error", describeError(error));
+        throw error;
+      }
+      return;
+    }
+
+    if (shouldTransformMessages && contentType.includes("application/json")) {
+      return await sendTransformedJson(upstream, res, responseHeaders, aliasModel);
+    }
+
+    res.writeHead(upstream.status, responseHeaders);
+    if (!upstream.body) return res.end();
+    await pipeline(Readable.fromWeb(upstream.body), res);
+  } catch (error) {
+    if (upstreamTimedOut) {
+      throw new HttpError(504, `Upstream request timed out after ${UPSTREAM_TIMEOUT_MS} ms.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    req.off("aborted", abortForClientDisconnect);
+    res.off("close", abortForClientDisconnect);
   }
-
-  if (shouldTransformMessages && contentType.includes("text/event-stream") && upstream.body) {
-    res.writeHead(upstream.status, baseResponseHeaders("text/event-stream; charset=utf-8"));
-    const transformed = Readable.from(transformSseStream(upstream.body, aliasModel));
-    transformed.on("end", () => logLine("INFO", "sse_complete", { path: url.pathname, duration_ms: Date.now() - startedAt }));
-    transformed.on("error", (error) => logLine("ERROR", "sse_transform_error", describeError(error)));
-    return transformed.pipe(res);
-  }
-
-  if (shouldTransformMessages && contentType.includes("application/json")) {
-    return sendTransformedJson(upstream, res, responseHeaders, aliasModel);
-  }
-
-  res.writeHead(upstream.status, addCorsHeaders(responseHeaders));
-  if (!upstream.body) return res.end();
-  Readable.fromWeb(upstream.body).pipe(res);
 }
 
 export function handleRequest(req, res) {
   handleProxy(req, res).catch((error) => {
     logLine("ERROR", "proxy_error", describeError(error));
     if (!res.headersSent) {
-      sendJson(res, 502, {
+      const statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : 502;
+      sendJson(res, statusCode, {
         error: {
           type: "proxy_error",
-          message: error.message,
+          message: error?.publicMessage || "The upstream provider could not be reached.",
         },
       });
     } else {
@@ -538,6 +730,9 @@ export function handleRequest(req, res) {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  if (!PROXY_API_KEY) {
+    throw new Error("PROXY_API_KEY is required.");
+  }
   const server = http.createServer(handleRequest);
 
   server.listen(PORT, HOST, () => {
@@ -545,7 +740,6 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     logLine("INFO", `upstream ${UPSTREAM_BASE}`);
     logLine("INFO", `aliases ${ALIASES.map((id) => `${id}=>${MODEL_MAP[id]}`).join(", ")}`);
     if (LOG_FILE) logLine("INFO", `log_file ${LOG_FILE}`);
-    if (!PROXY_API_KEY) logLine("WARN", "PROXY_API_KEY is not set. Do not expose this proxy publicly.");
-    if (ALLOW_LOCALHOST_NO_AUTH) logLine("WARN", "ALLOW_LOCALHOST_NO_AUTH is enabled. Do not expose this proxy through Cloudflare while this is enabled.");
+    if (LOG_FILE) logLine("INFO", `log_rotation max_bytes=${LOG_MAX_BYTES} backups=${LOG_BACKUPS}`);
   });
 }
