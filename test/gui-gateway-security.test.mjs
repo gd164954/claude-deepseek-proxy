@@ -84,3 +84,31 @@ test("ships the Gateway manager controls and its external XAML fallback", async 
   );
   assert.match(build, /GatewayKeyWindowXaml" -FileName "GatewayKeyWindow\.xaml"/);
 });
+
+test("uses one deliberate typography scale across the main window", async () => {
+  const csharp = await readFile(csharpPath, "utf8");
+  const windowXamlMatch = csharp.match(
+    /private const string WindowXaml = @"([\s\S]*?)";\s*private const string GatewayKeyWindowXaml/,
+  );
+
+  assert.ok(windowXamlMatch, "main window XAML should be embedded in the manager");
+  const windowXaml = windowXamlMatch[1];
+
+  assert.match(windowXaml, /TextElement\.FontFamily=""Microsoft YaHei UI"" TextElement\.FontSize=""13""/);
+  for (const [styleName, fontSize] of [
+    ["DisplayText", "22"],
+    ["HeroText", "20"],
+    ["SectionTitleText", "16"],
+    ["SubsectionTitleText", "14"],
+    ["SecondaryText", "12"],
+    ["CaptionText", "11"],
+  ]) {
+    assert.match(
+      windowXaml,
+      new RegExp(`x:Key=""${styleName}""[\\s\\S]*?FontSize"" Value=""${fontSize}""`),
+    );
+  }
+  assert.match(windowXaml, /x:Key=""TechnicalInput""[\s\S]*?FontFamily"" Value=""Consolas""[\s\S]*?FontSize"" Value=""12""/);
+  assert.match(windowXaml, /x:Key=""MonoValueText""[\s\S]*?FontFamily"" Value=""Consolas""[\s\S]*?FontSize"" Value=""13""/);
+  assert.doesNotMatch(windowXaml, /FontSize=""\d+\.\d+""/);
+});

@@ -24,8 +24,8 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("Native Windows manager for the local Claude-to-DeepSeek proxy")]
 [assembly: AssemblyCompany("Local")]
 [assembly: AssemblyProduct("DeepSeek Claude Proxy Manager")]
-[assembly: AssemblyVersion("1.6.7.0")]
-[assembly: AssemblyFileVersion("1.6.7.0")]
+[assembly: AssemblyVersion("1.6.8.0")]
+[assembly: AssemblyFileVersion("1.6.8.0")]
 
 namespace ClaudeDeepSeekProxyManager
 {
@@ -1223,12 +1223,20 @@ namespace ClaudeDeepSeekProxyManager
 <Grid xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation""
       xmlns:x=""http://schemas.microsoft.com/winfx/2006/xaml"" Background=""#F6F8FC"" Language=""zh-CN""
       UseLayoutRounding=""True"" SnapsToDevicePixels=""True"" RenderOptions.ClearTypeHint=""Enabled""
+      TextElement.FontFamily=""Microsoft YaHei UI"" TextElement.FontSize=""13""
       TextOptions.TextFormattingMode=""Display"" TextOptions.TextRenderingMode=""ClearType"" TextOptions.TextHintingMode=""Fixed"">
   <Grid.Resources>
     <SolidColorBrush x:Key=""Ink"" Color=""#263449""/>
     <SolidColorBrush x:Key=""Muted"" Color=""#748096""/>
     <SolidColorBrush x:Key=""Primary"" Color=""#4B76E5""/>
     <DropShadowEffect x:Key=""CardShadow"" BlurRadius=""10"" ShadowDepth=""1"" Direction=""270"" Color=""#52657A"" Opacity=""0.06""/>
+    <Style x:Key=""DisplayText"" TargetType=""TextBlock""><Setter Property=""FontSize"" Value=""22""/><Setter Property=""FontWeight"" Value=""SemiBold""/></Style>
+    <Style x:Key=""HeroText"" TargetType=""TextBlock""><Setter Property=""FontSize"" Value=""20""/><Setter Property=""FontWeight"" Value=""SemiBold""/></Style>
+    <Style x:Key=""SectionTitleText"" TargetType=""TextBlock""><Setter Property=""FontSize"" Value=""16""/><Setter Property=""FontWeight"" Value=""SemiBold""/></Style>
+    <Style x:Key=""SubsectionTitleText"" TargetType=""TextBlock""><Setter Property=""FontSize"" Value=""14""/><Setter Property=""FontWeight"" Value=""SemiBold""/></Style>
+    <Style x:Key=""SecondaryText"" TargetType=""TextBlock""><Setter Property=""FontSize"" Value=""12""/><Setter Property=""FontWeight"" Value=""Normal""/></Style>
+    <Style x:Key=""CaptionText"" TargetType=""TextBlock""><Setter Property=""FontSize"" Value=""11""/><Setter Property=""FontWeight"" Value=""Normal""/></Style>
+    <Style x:Key=""MonoValueText"" TargetType=""TextBlock""><Setter Property=""FontFamily"" Value=""Consolas""/><Setter Property=""FontSize"" Value=""13""/><Setter Property=""FontWeight"" Value=""Normal""/></Style>
     <Style x:Key=""Card"" TargetType=""Border"">
       <Setter Property=""Background"" Value=""White""/><Setter Property=""CornerRadius"" Value=""12""/>
       <Setter Property=""BorderBrush"" Value=""#E4E9F1""/><Setter Property=""BorderThickness"" Value=""1""/>
@@ -1241,6 +1249,7 @@ namespace ClaudeDeepSeekProxyManager
     </Style>
     <Style TargetType=""TextBox"">
       <Setter Property=""Height"" Value=""40""/><Setter Property=""Padding"" Value=""10,0""/>
+      <Setter Property=""FontSize"" Value=""13""/>
       <Setter Property=""Foreground"" Value=""#263449""/><Setter Property=""Background"" Value=""White""/>
       <Setter Property=""BorderBrush"" Value=""#D7E0EC""/><Setter Property=""BorderThickness"" Value=""1""/>
       <Setter Property=""VerticalContentAlignment"" Value=""Center""/><Setter Property=""Template""><Setter.Value>
@@ -1252,8 +1261,12 @@ namespace ClaudeDeepSeekProxyManager
         </ControlTemplate.Triggers></ControlTemplate>
       </Setter.Value></Setter>
     </Style>
+    <Style x:Key=""TechnicalInput"" TargetType=""TextBox"" BasedOn=""{StaticResource {x:Type TextBox}}"">
+      <Setter Property=""FontFamily"" Value=""Consolas""/><Setter Property=""FontSize"" Value=""12""/>
+    </Style>
     <Style TargetType=""PasswordBox"">
       <Setter Property=""Height"" Value=""40""/><Setter Property=""Padding"" Value=""10,0""/>
+      <Setter Property=""FontSize"" Value=""13""/>
       <Setter Property=""Foreground"" Value=""#263449""/><Setter Property=""Background"" Value=""White""/>
       <Setter Property=""BorderBrush"" Value=""#D7E0EC""/><Setter Property=""BorderThickness"" Value=""1""/><Setter Property=""VerticalContentAlignment"" Value=""Center""/>
       <Setter Property=""Template""><Setter.Value><ControlTemplate TargetType=""PasswordBox"">
@@ -1268,7 +1281,7 @@ namespace ClaudeDeepSeekProxyManager
     <Style x:Key=""PrimaryButton"" TargetType=""Button"">
       <Setter Property=""Foreground"" Value=""White""/><Setter Property=""Background"" Value=""#4B76E5""/>
       <Setter Property=""BorderThickness"" Value=""0""/><Setter Property=""Padding"" Value=""18,9""/><Setter Property=""MinHeight"" Value=""38""/>
-      <Setter Property=""FontWeight"" Value=""SemiBold""/><Setter Property=""Cursor"" Value=""Hand""/><Setter Property=""FocusVisualStyle"" Value=""{StaticResource ButtonFocusVisual}""/>
+      <Setter Property=""FontSize"" Value=""13""/><Setter Property=""FontWeight"" Value=""SemiBold""/><Setter Property=""Cursor"" Value=""Hand""/><Setter Property=""FocusVisualStyle"" Value=""{StaticResource ButtonFocusVisual}""/>
       <Setter Property=""Template""><Setter.Value><ControlTemplate TargetType=""Button"">
         <Border Background=""{TemplateBinding Background}"" CornerRadius=""8"" Padding=""{TemplateBinding Padding}""><ContentPresenter HorizontalAlignment=""Center"" VerticalAlignment=""Center""/></Border>
         <ControlTemplate.Triggers><Trigger Property=""IsMouseOver"" Value=""True""><Setter Property=""Background"" Value=""#3E68D5""/></Trigger><Trigger Property=""IsPressed"" Value=""True""><Setter Property=""Background"" Value=""#345BC4""/></Trigger><Trigger Property=""IsEnabled"" Value=""False""><Setter Property=""Opacity"" Value=""0.48""/><Setter Property=""Cursor"" Value=""Arrow""/></Trigger></ControlTemplate.Triggers>
@@ -1289,8 +1302,8 @@ namespace ClaudeDeepSeekProxyManager
       <Grid><Grid.ColumnDefinitions><ColumnDefinition Width=""*""/><ColumnDefinition Width=""Auto""/></Grid.ColumnDefinitions>
         <StackPanel Orientation=""Horizontal"" VerticalAlignment=""Center"">
           <Image x:Name=""HeaderIcon"" Width=""48"" Height=""48"" Stretch=""None"" RenderOptions.BitmapScalingMode=""HighQuality"" Margin=""0,0,15,0""/>
-          <StackPanel VerticalAlignment=""Center""><TextBlock Text=""DeepSeek Claude Proxy"" Foreground=""#1F2A3D"" FontSize=""21"" FontWeight=""SemiBold""/>
-            <TextBlock Text=""本地模型路由与代理管理"" Foreground=""#748096"" Margin=""0,4,0,0"" FontSize=""12""/></StackPanel>
+          <StackPanel VerticalAlignment=""Center""><TextBlock Text=""DeepSeek Claude Proxy"" Foreground=""#1F2A3D"" Style=""{StaticResource DisplayText}""/>
+            <TextBlock Text=""本地模型路由与代理管理"" Foreground=""#748096"" Margin=""0,4,0,0"" Style=""{StaticResource SecondaryText}""/></StackPanel>
         </StackPanel>
         <Border Grid.Column=""1"" Background=""#F6F8FC"" BorderBrush=""#DCE4F2"" BorderThickness=""1"" CornerRadius=""18"" Padding=""14,8"" VerticalAlignment=""Center"">
           <StackPanel Orientation=""Horizontal""><Ellipse x:Name=""StatusDot"" Width=""9"" Height=""9"" Fill=""#5B7FE6"" Margin=""0,0,8,0""/>
@@ -1302,33 +1315,33 @@ namespace ClaudeDeepSeekProxyManager
       <Grid.ColumnDefinitions><ColumnDefinition Width=""*""/><ColumnDefinition Width=""18""/><ColumnDefinition Width=""*""/></Grid.ColumnDefinitions>
       <Border Grid.Column=""0"" Style=""{StaticResource Card}"" Padding=""22"">
         <Grid><Grid.RowDefinitions><RowDefinition Height=""Auto""/><RowDefinition Height=""*""/><RowDefinition Height=""Auto""/></Grid.RowDefinitions>
-          <StackPanel><TextBlock Text=""代理配置"" Foreground=""{StaticResource Ink}"" FontSize=""17"" FontWeight=""SemiBold""/>
-            <TextBlock Text=""密钥与映射只保存在当前 Windows 账户"" Foreground=""{StaticResource Muted}"" FontSize=""11.5"" Margin=""0,5,0,0""/></StackPanel>
+          <StackPanel><TextBlock Text=""代理配置"" Foreground=""{StaticResource Ink}"" Style=""{StaticResource SectionTitleText}""/>
+            <TextBlock Text=""密钥与映射只保存在当前 Windows 账户"" Foreground=""{StaticResource Muted}"" Style=""{StaticResource SecondaryText}"" Margin=""0,5,0,0""/></StackPanel>
           <ScrollViewer Grid.Row=""1"" VerticalScrollBarVisibility=""Auto"" HorizontalScrollBarVisibility=""Disabled"" PanningMode=""VerticalOnly"" Margin=""0,4,0,4"">
             <StackPanel Margin=""0,0,4,0"">
               <TextBlock Text=""DeepSeek API Key"" Foreground=""{StaticResource Muted}"" Margin=""0,2,0,5""/>
               <Grid><Grid.ColumnDefinitions><ColumnDefinition Width=""*""/><ColumnDefinition Width=""9""/><ColumnDefinition Width=""92""/></Grid.ColumnDefinitions>
                 <PasswordBox x:Name=""ApiKeyBox"" AutomationProperties.Name=""DeepSeek API Key""/><Button x:Name=""SaveKeyButton"" Grid.Column=""2"" Content=""保存配置"" Style=""{StaticResource SecondaryButton}"" Padding=""12,8""/>
               </Grid>
-              <TextBlock Text=""使用 Windows DPAPI 加密，不会出现在命令行参数中"" Foreground=""#7D889A"" FontSize=""11"" Margin=""0,5,0,0""/>
+              <TextBlock Text=""使用 Windows DPAPI 加密，不会出现在命令行参数中"" Foreground=""#7D889A"" Style=""{StaticResource CaptionText}"" Margin=""0,5,0,0""/>
               <TextBlock Text=""本地监听端口"" Foreground=""{StaticResource Muted}"" Margin=""0,10,0,5""/>
-              <TextBox x:Name=""PortBox"" Text=""3210"" AutomationProperties.Name=""本地监听端口""/>
+              <TextBox x:Name=""PortBox"" Text=""3210"" Style=""{StaticResource TechnicalInput}"" AutomationProperties.Name=""本地监听端口""/>
               <Grid Margin=""0,12,0,5""><Grid.ColumnDefinitions><ColumnDefinition Width=""*""/><ColumnDefinition Width=""Auto""/></Grid.ColumnDefinitions>
-                <TextBlock Text=""模型映射"" Foreground=""{StaticResource Ink}"" FontWeight=""SemiBold""/>
-                <TextBlock Grid.Column=""1"" Text=""两端均可编辑"" Foreground=""#5E7DD8"" FontSize=""11""/>
+                <TextBlock Text=""模型映射"" Foreground=""{StaticResource Ink}"" Style=""{StaticResource SubsectionTitleText}""/>
+                <TextBlock Grid.Column=""1"" Text=""两端均可编辑"" Foreground=""#5E7DD8"" Style=""{StaticResource CaptionText}""/>
               </Grid>
               <Border Background=""#F8FAFD"" CornerRadius=""9"" Padding=""10"" BorderBrush=""#E1E7F0"" BorderThickness=""1"">
                 <Grid>
                   <Grid.RowDefinitions><RowDefinition Height=""Auto""/><RowDefinition Height=""6""/><RowDefinition Height=""Auto""/><RowDefinition Height=""7""/><RowDefinition Height=""Auto""/></Grid.RowDefinitions>
                   <Grid.ColumnDefinitions><ColumnDefinition Width=""*""/><ColumnDefinition Width=""32""/><ColumnDefinition Width=""*""/></Grid.ColumnDefinitions>
-                  <TextBlock Text=""Claude 模型 ID"" Foreground=""#6F7C90"" FontSize=""11""/>
-                  <TextBlock Grid.Column=""2"" Text=""DeepSeek 模型 ID"" Foreground=""#6F7C90"" FontSize=""11""/>
-                  <TextBox x:Name=""SonnetAliasBox"" Grid.Row=""2"" Text=""claude-sonnet-4-5"" FontSize=""11"" Padding=""8,0"" AutomationProperties.Name=""Sonnet Claude 模型 ID""/>
+                  <TextBlock Text=""Claude 模型 ID"" Foreground=""#6F7C90"" Style=""{StaticResource CaptionText}""/>
+                  <TextBlock Grid.Column=""2"" Text=""DeepSeek 模型 ID"" Foreground=""#6F7C90"" Style=""{StaticResource CaptionText}""/>
+                  <TextBox x:Name=""SonnetAliasBox"" Grid.Row=""2"" Text=""claude-sonnet-4-5"" Style=""{StaticResource TechnicalInput}"" Padding=""8,0"" AutomationProperties.Name=""Sonnet Claude 模型 ID""/>
                   <TextBlock Grid.Row=""2"" Grid.Column=""1"" Text=""→"" Foreground=""#6B86E8"" FontSize=""16"" HorizontalAlignment=""Center"" VerticalAlignment=""Center""/>
-                  <TextBox x:Name=""SonnetTargetBox"" Grid.Row=""2"" Grid.Column=""2"" Text=""deepseek-v4-flash"" FontSize=""11"" Padding=""8,0"" AutomationProperties.Name=""Sonnet DeepSeek 模型 ID""/>
-                  <TextBox x:Name=""OpusAliasBox"" Grid.Row=""4"" Text=""claude-opus-4-5"" FontSize=""11"" Padding=""8,0"" AutomationProperties.Name=""Opus Claude 模型 ID""/>
+                  <TextBox x:Name=""SonnetTargetBox"" Grid.Row=""2"" Grid.Column=""2"" Text=""deepseek-v4-flash"" Style=""{StaticResource TechnicalInput}"" Padding=""8,0"" AutomationProperties.Name=""Sonnet DeepSeek 模型 ID""/>
+                  <TextBox x:Name=""OpusAliasBox"" Grid.Row=""4"" Text=""claude-opus-4-5"" Style=""{StaticResource TechnicalInput}"" Padding=""8,0"" AutomationProperties.Name=""Opus Claude 模型 ID""/>
                   <TextBlock Grid.Row=""4"" Grid.Column=""1"" Text=""→"" Foreground=""#6B86E8"" FontSize=""16"" HorizontalAlignment=""Center"" VerticalAlignment=""Center""/>
-                  <TextBox x:Name=""OpusTargetBox"" Grid.Row=""4"" Grid.Column=""2"" Text=""deepseek-v4-pro"" FontSize=""11"" Padding=""8,0"" AutomationProperties.Name=""Opus DeepSeek 模型 ID""/>
+                  <TextBox x:Name=""OpusTargetBox"" Grid.Row=""4"" Grid.Column=""2"" Text=""deepseek-v4-pro"" Style=""{StaticResource TechnicalInput}"" Padding=""8,0"" AutomationProperties.Name=""Opus DeepSeek 模型 ID""/>
                 </Grid>
               </Border>
             </StackPanel>
@@ -1348,14 +1361,14 @@ namespace ClaudeDeepSeekProxyManager
           <Border Grid.Row=""0"" CornerRadius=""12,12,0,0"" Background=""#FAFCFF"" Padding=""26,22"">
             <Grid><Grid.RowDefinitions><RowDefinition Height=""Auto""/><RowDefinition Height=""*""/><RowDefinition Height=""Auto""/></Grid.RowDefinitions>
               <Grid><Grid.ColumnDefinitions><ColumnDefinition Width=""*""/><ColumnDefinition Width=""Auto""/></Grid.ColumnDefinitions>
-                <TextBlock Text=""运行中心"" Foreground=""{StaticResource Ink}"" FontSize=""17"" FontWeight=""SemiBold""/>
-                <Border Grid.Column=""1"" Background=""#EEF3FD"" CornerRadius=""12"" Padding=""10,4""><TextBlock Text=""本机模式"" Foreground=""#5575CD"" FontSize=""11"" FontWeight=""SemiBold""/></Border>
+                <TextBlock Text=""运行中心"" Foreground=""{StaticResource Ink}"" Style=""{StaticResource SectionTitleText}""/>
+                <Border Grid.Column=""1"" Background=""#EEF3FD"" CornerRadius=""12"" Padding=""10,4""><TextBlock Text=""本机模式"" Foreground=""#5575CD"" Style=""{StaticResource CaptionText}"" FontWeight=""SemiBold""/></Border>
               </Grid>
               <Grid Grid.Row=""1"" Margin=""0,12,0,10""><Grid.ColumnDefinitions><ColumnDefinition Width=""54""/><ColumnDefinition Width=""*""/></Grid.ColumnDefinitions>
                 <Border Width=""46"" Height=""46"" CornerRadius=""23"" Background=""#EDF2FB"" HorizontalAlignment=""Left"" VerticalAlignment=""Center""><Ellipse x:Name=""CenterStatusDot"" Width=""13"" Height=""13"" Fill=""#6F92E8"" HorizontalAlignment=""Center"" VerticalAlignment=""Center""/></Border>
                 <StackPanel Grid.Column=""1"" VerticalAlignment=""Center"">
-                  <TextBlock x:Name=""ProxyStateTitle"" Text=""正在检查"" Foreground=""#172033"" FontSize=""20"" FontWeight=""SemiBold""/>
-                  <TextBlock x:Name=""StatusDetail"" Text=""正在检查本地代理…"" Foreground=""{StaticResource Muted}"" FontSize=""12"" Margin=""0,5,10,0"" TextWrapping=""Wrap"" LineHeight=""18""/>
+                  <TextBlock x:Name=""ProxyStateTitle"" Text=""正在检查"" Foreground=""#172033"" Style=""{StaticResource HeroText}""/>
+                  <TextBlock x:Name=""StatusDetail"" Text=""正在检查本地代理…"" Foreground=""{StaticResource Muted}"" Style=""{StaticResource SecondaryText}"" Margin=""0,5,10,0"" TextWrapping=""Wrap"" LineHeight=""18""/>
                 </StackPanel>
               </Grid>
               <Grid Grid.Row=""2""><Grid.ColumnDefinitions><ColumnDefinition Width=""1.35*""/><ColumnDefinition Width=""8""/><ColumnDefinition Width=""*""/><ColumnDefinition Width=""8""/><ColumnDefinition Width=""*""/></Grid.ColumnDefinitions>
@@ -1368,14 +1381,14 @@ namespace ClaudeDeepSeekProxyManager
           <Border Grid.Row=""1"" Background=""#E7ECF3""/>
           <Grid Grid.Row=""2"" Margin=""26,14""><Grid.RowDefinitions><RowDefinition Height=""40""/><RowDefinition Height=""8""/><RowDefinition Height=""40""/></Grid.RowDefinitions>
             <Grid.ColumnDefinitions><ColumnDefinition Width=""76""/><ColumnDefinition Width=""*""/><ColumnDefinition Width=""10""/><ColumnDefinition Width=""54""/><ColumnDefinition Width=""8""/><ColumnDefinition Width=""54""/></Grid.ColumnDefinitions>
-            <StackPanel Grid.Row=""0"" VerticalAlignment=""Center""><TextBlock Text=""本地端点"" Foreground=""#344054"" FontWeight=""SemiBold"" FontSize=""12.5""/><TextBlock Text=""Gateway URL"" Foreground=""#8792A5"" FontSize=""10.5"" Margin=""0,2,0,0""/></StackPanel>
+            <StackPanel Grid.Row=""0"" VerticalAlignment=""Center""><TextBlock Text=""本地端点"" Foreground=""#344054"" FontWeight=""SemiBold""/><TextBlock Text=""Gateway URL"" Foreground=""#8792A5"" Style=""{StaticResource CaptionText}"" Margin=""0,2,0,0""/></StackPanel>
             <Border Grid.Row=""0"" Grid.Column=""1"" Grid.ColumnSpan=""3"" Background=""#F8FAFD"" CornerRadius=""7"" BorderBrush=""#DDE5F1"" BorderThickness=""1"" MinHeight=""40"" Padding=""12,0"">
-              <TextBlock x:Name=""EndpointText"" Text=""http://127.0.0.1:3210"" Foreground=""#5271C7"" FontFamily=""Consolas"" FontSize=""13.5"" VerticalAlignment=""Center"" TextWrapping=""NoWrap"" TextTrimming=""None""/>
+              <TextBlock x:Name=""EndpointText"" Text=""http://127.0.0.1:3210"" Foreground=""#5271C7"" Style=""{StaticResource MonoValueText}"" VerticalAlignment=""Center"" TextWrapping=""NoWrap"" TextTrimming=""None""/>
             </Border>
             <Button x:Name=""CopyEndpointButton"" Grid.Row=""0"" Grid.Column=""5"" Content=""复制"" Style=""{StaticResource SecondaryButton}"" Padding=""10,8""/>
-            <StackPanel Grid.Row=""2"" VerticalAlignment=""Center""><TextBlock Text=""访问密钥"" Foreground=""#344054"" FontWeight=""SemiBold"" FontSize=""12.5""/><TextBlock Text=""Gateway Key"" Foreground=""#8792A5"" FontSize=""10.5"" Margin=""0,2,0,0""/></StackPanel>
+            <StackPanel Grid.Row=""2"" VerticalAlignment=""Center""><TextBlock Text=""访问密钥"" Foreground=""#344054"" FontWeight=""SemiBold""/><TextBlock Text=""Gateway Key"" Foreground=""#8792A5"" Style=""{StaticResource CaptionText}"" Margin=""0,2,0,0""/></StackPanel>
             <Border Grid.Row=""2"" Grid.Column=""1"" Background=""#F8FAFD"" CornerRadius=""7"" BorderBrush=""#DDE5F1"" BorderThickness=""1"" MinHeight=""40"" Padding=""12,0"">
-              <TextBlock x:Name=""GatewayKeySummaryText"" Text=""正在准备安全密钥…"" Foreground=""#5271C7"" FontSize=""11.5"" VerticalAlignment=""Center"" TextTrimming=""CharacterEllipsis""/>
+              <TextBlock x:Name=""GatewayKeySummaryText"" Text=""正在准备安全密钥…"" Foreground=""#5271C7"" Style=""{StaticResource SecondaryText}"" VerticalAlignment=""Center"" TextTrimming=""CharacterEllipsis""/>
             </Border>
             <Button x:Name=""CopyGatewayKeyButton"" Grid.Row=""2"" Grid.Column=""3"" Content=""复制"" Style=""{StaticResource SecondaryButton}"" Padding=""8,8""/>
             <Button x:Name=""ManageGatewayKeyButton"" Grid.Row=""2"" Grid.Column=""5"" Content=""管理"" Style=""{StaticResource SecondaryButton}"" Padding=""8,8""/>
@@ -1388,7 +1401,7 @@ namespace ClaudeDeepSeekProxyManager
           </Grid>
           <Border Grid.Row=""5"" Background=""#E7ECF3""/>
           <Grid Grid.Row=""6"" Margin=""26,12,26,10""><Grid.RowDefinitions><RowDefinition Height=""Auto""/><RowDefinition Height=""*""/></Grid.RowDefinitions>
-            <TextBlock Text=""运行保障"" Foreground=""{StaticResource Ink}"" FontSize=""13.5"" FontWeight=""SemiBold""/>
+            <TextBlock Text=""运行保障"" Foreground=""{StaticResource Ink}"" Style=""{StaticResource SubsectionTitleText}""/>
             <Grid Grid.Row=""1"" Margin=""0,7,0,0""><Grid.RowDefinitions><RowDefinition Height=""24""/><RowDefinition Height=""1""/><RowDefinition Height=""24""/><RowDefinition Height=""1""/><RowDefinition Height=""24""/></Grid.RowDefinitions>
               <Grid><Grid.ColumnDefinitions><ColumnDefinition Width=""*""/><ColumnDefinition Width=""Auto""/></Grid.ColumnDefinitions><TextBlock Text=""网络范围"" Foreground=""{StaticResource Muted}"" VerticalAlignment=""Center""/><TextBlock Grid.Column=""1"" Text=""仅监听 127.0.0.1"" Foreground=""#344054"" VerticalAlignment=""Center""/></Grid>
               <Border Grid.Row=""1"" Background=""#EEF2F7""/>
@@ -1401,8 +1414,8 @@ namespace ClaudeDeepSeekProxyManager
       </Border>
     </Grid>
     <Border Grid.Row=""2"" Background=""#FAFBFD"" BorderBrush=""#E3E8F0"" BorderThickness=""0,1,0,0"" Padding=""24,0"">
-      <Grid><TextBlock x:Name=""NodeText"" Text=""Node.js 将在启动时自动检测"" Foreground=""{StaticResource Muted}"" VerticalAlignment=""Center"" FontSize=""11""/>
-        <TextBlock Text=""本地安全模式  ·  仅监听 127.0.0.1"" HorizontalAlignment=""Right"" Foreground=""#7A8699"" VerticalAlignment=""Center"" FontSize=""11""/>
+      <Grid><TextBlock x:Name=""NodeText"" Text=""Node.js 将在启动时自动检测"" Foreground=""{StaticResource Muted}"" VerticalAlignment=""Center"" Style=""{StaticResource CaptionText}""/>
+        <TextBlock Text=""本地安全模式  ·  仅监听 127.0.0.1"" HorizontalAlignment=""Right"" Foreground=""#7A8699"" VerticalAlignment=""Center"" Style=""{StaticResource CaptionText}""/>
       </Grid>
     </Border>
   </Grid>
