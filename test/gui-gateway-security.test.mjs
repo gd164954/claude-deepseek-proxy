@@ -78,5 +78,9 @@ test("ships the Gateway manager controls and its external XAML fallback", async 
     /<Border Grid\.Row=""0"" Grid\.Column=""1"" Grid\.ColumnSpan=""3""[\s\S]*?x:Name=""EndpointText""/,
   );
   assert.match(csharp, /PanningMode=""VerticalOnly"" Margin=""0,4,0,4""/);
+  assert.match(
+    csharp,
+    /Text=""运行保障""[\s\S]*?Margin=""0,7,0,0""[\s\S]*?Height=""24""[\s\S]*?Height=""1""[\s\S]*?Height=""24""[\s\S]*?Height=""1""[\s\S]*?Height=""24""/,
+  );
   assert.match(build, /GatewayKeyWindowXaml" -FileName "GatewayKeyWindow\.xaml"/);
 });

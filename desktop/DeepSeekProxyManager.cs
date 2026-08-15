@@ -24,8 +24,8 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("Native Windows manager for the local Claude-to-DeepSeek proxy")]
 [assembly: AssemblyCompany("Local")]
 [assembly: AssemblyProduct("DeepSeek Claude Proxy Manager")]
-[assembly: AssemblyVersion("1.6.6.0")]
-[assembly: AssemblyFileVersion("1.6.6.0")]
+[assembly: AssemblyVersion("1.6.7.0")]
+[assembly: AssemblyFileVersion("1.6.7.0")]
 
 namespace ClaudeDeepSeekProxyManager
 {
@@ -1387,9 +1387,9 @@ namespace ClaudeDeepSeekProxyManager
             <Button x:Name=""OpenFolderButton"" Grid.Column=""4"" Content=""程序目录"" Style=""{StaticResource SecondaryButton}""/>
           </Grid>
           <Border Grid.Row=""5"" Background=""#E7ECF3""/>
-          <Grid Grid.Row=""6"" Margin=""26,8,26,6""><Grid.RowDefinitions><RowDefinition Height=""Auto""/><RowDefinition Height=""*""/></Grid.RowDefinitions>
+          <Grid Grid.Row=""6"" Margin=""26,12,26,10""><Grid.RowDefinitions><RowDefinition Height=""Auto""/><RowDefinition Height=""*""/></Grid.RowDefinitions>
             <TextBlock Text=""运行保障"" Foreground=""{StaticResource Ink}"" FontSize=""13.5"" FontWeight=""SemiBold""/>
-            <Grid Grid.Row=""1"" Margin=""0,4,0,0""><Grid.RowDefinitions><RowDefinition Height=""15""/><RowDefinition Height=""1""/><RowDefinition Height=""15""/><RowDefinition Height=""1""/><RowDefinition Height=""15""/></Grid.RowDefinitions>
+            <Grid Grid.Row=""1"" Margin=""0,7,0,0""><Grid.RowDefinitions><RowDefinition Height=""24""/><RowDefinition Height=""1""/><RowDefinition Height=""24""/><RowDefinition Height=""1""/><RowDefinition Height=""24""/></Grid.RowDefinitions>
               <Grid><Grid.ColumnDefinitions><ColumnDefinition Width=""*""/><ColumnDefinition Width=""Auto""/></Grid.ColumnDefinitions><TextBlock Text=""网络范围"" Foreground=""{StaticResource Muted}"" VerticalAlignment=""Center""/><TextBlock Grid.Column=""1"" Text=""仅监听 127.0.0.1"" Foreground=""#344054"" VerticalAlignment=""Center""/></Grid>
               <Border Grid.Row=""1"" Background=""#EEF2F7""/>
               <Grid Grid.Row=""2""><Grid.ColumnDefinitions><ColumnDefinition Width=""*""/><ColumnDefinition Width=""Auto""/></Grid.ColumnDefinitions><TextBlock Text=""密钥存储"" Foreground=""{StaticResource Muted}"" VerticalAlignment=""Center""/><TextBlock Grid.Column=""1"" Text=""Windows DPAPI 加密"" Foreground=""#344054"" VerticalAlignment=""Center""/></Grid>
