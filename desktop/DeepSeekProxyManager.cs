@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -24,8 +25,8 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("Native Windows manager for the local Claude-to-DeepSeek proxy")]
 [assembly: AssemblyCompany("Local")]
 [assembly: AssemblyProduct("DeepSeek Claude Proxy Manager")]
-[assembly: AssemblyVersion("1.6.8.0")]
-[assembly: AssemblyFileVersion("1.6.8.0")]
+[assembly: AssemblyVersion("1.6.10.0")]
+[assembly: AssemblyFileVersion("1.6.10.0")]
 
 namespace ClaudeDeepSeekProxyManager
 {
@@ -46,6 +47,10 @@ namespace ClaudeDeepSeekProxyManager
                 return;
             }
 
+            // This manager is a static control panel. Software rendering avoids
+            // the large shared-GPU reservation observed with some Intel drivers
+            // while keeping interaction costs negligible.
+            RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
             var app = new Application();
             app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             var window = new ManagerWindow(args);
@@ -60,6 +65,10 @@ namespace ClaudeDeepSeekProxyManager
         private const string AppRegistryPath = "Software\\ClaudeDeepSeekProxyManager";
         private const string RunRegistryPath = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
         private const string RunValueName = "ClaudeDeepSeekProxyManager";
+        private static readonly SolidColorBrush StoppedBrush = CreateFrozenBrush(151, 162, 178);
+        private static readonly SolidColorBrush StartingBrush = CreateFrozenBrush(238, 164, 55);
+        private static readonly SolidColorBrush SuccessBrush = CreateFrozenBrush(31, 170, 104);
+        private static readonly SolidColorBrush ErrorBrush = CreateFrozenBrush(225, 75, 75);
 
         private readonly string _appDirectory;
         private readonly string _proxyScriptPath;
@@ -106,6 +115,11 @@ namespace ClaudeDeepSeekProxyManager
         private bool _refreshingHealth;
         private bool _exiting;
         private bool _externalProxyDetected;
+        private StatusKind? _lastStatusKind;
+        private string _lastStatusTitle = "";
+        private string _lastStatusDetail = "";
+        private bool? _lastRunningState;
+        private bool? _lastOwnedState;
         private int _statusGeneration;
         private string _lastLogText = "";
         private string _nodePath = "";
@@ -146,6 +160,7 @@ namespace ClaudeDeepSeekProxyManager
 
             Loaded += OnLoaded;
             Closing += OnClosing;
+            StateChanged += delegate { UpdatePollingCadence(); };
         }
 
         private void BindControls()
@@ -237,12 +252,19 @@ namespace ClaudeDeepSeekProxyManager
         private void ConfigureTimers()
         {
             _healthTimer = new DispatcherTimer();
-            _healthTimer.Interval = TimeSpan.FromSeconds(3);
+            _healthTimer.Interval = TimeSpan.FromSeconds(10);
             _healthTimer.Tick += async delegate { await RefreshHealthAsync(); };
 
             _logTimer = new DispatcherTimer();
-            _logTimer.Interval = TimeSpan.FromSeconds(1);
+            _logTimer.Interval = TimeSpan.FromSeconds(2);
             _logTimer.Tick += delegate { RefreshLog(); };
+        }
+
+        private void UpdatePollingCadence()
+        {
+            if (_healthTimer == null) return;
+            var foreground = IsVisible && WindowState != WindowState.Minimized;
+            _healthTimer.Interval = TimeSpan.FromSeconds(foreground ? 10 : 45);
         }
 
         private void ConfigureTrayIcon()
@@ -271,7 +293,7 @@ namespace ClaudeDeepSeekProxyManager
             _trayStartItem.Click += delegate { Dispatcher.BeginInvoke(new Action(async delegate { await StartProxyAsync(); })); };
             _trayStopItem = TrayMenuTheme.CreateItem(
                 "停止代理", TrayMenuGlyph.Stop, Drawing.Color.FromArgb(226, 153, 51), false);
-            _trayStopItem.Click += delegate { Dispatcher.BeginInvoke(new Action(StopOwnedProxy)); };
+            _trayStopItem.Click += delegate { Dispatcher.BeginInvoke(new Action(delegate { StopOwnedProxy(); })); };
             var exitItem = TrayMenuTheme.CreateItem(
                 "退出", TrayMenuGlyph.Exit, Drawing.Color.FromArgb(224, 82, 94), false);
             exitItem.Click += delegate { Dispatcher.BeginInvoke(new Action(ExitApplication)); };
@@ -287,13 +309,14 @@ namespace ClaudeDeepSeekProxyManager
 
         private async void OnLoaded(object sender, RoutedEventArgs e)
         {
+            UpdatePollingCadence();
             _healthTimer.Start();
-            _logTimer.Start();
             await RefreshHealthAsync();
 
             if (_autoStartInvocation)
             {
                 Hide();
+                UpdatePollingCadence();
                 if (!await IsProxyHealthyAsync())
                 {
                     await StartProxyAsync();
@@ -308,6 +331,8 @@ namespace ClaudeDeepSeekProxyManager
                 e.Cancel = true;
                 Hide();
                 if (_logWindow != null) _logWindow.Hide();
+                _logTimer.Stop();
+                UpdatePollingCadence();
                 _trayIcon.ShowBalloonTip(1500, "DeepSeek 代理管理器", "程序仍在系统托盘中运行。", Forms.ToolTipIcon.Info);
                 return;
             }
@@ -315,7 +340,7 @@ namespace ClaudeDeepSeekProxyManager
             _healthTimer.Stop();
             _logTimer.Stop();
             if (_logWindow != null) _logWindow.Close();
-            StopOwnedProxy();
+            StopOwnedProxy("manager_exit");
             _trayIcon.Visible = false;
             _trayIcon.Dispose();
             if (_trayMenu != null) _trayMenu.Dispose();
@@ -395,6 +420,7 @@ namespace ClaudeDeepSeekProxyManager
                 startInfo.CreateNoWindow = true;
                 startInfo.RedirectStandardOutput = true;
                 startInfo.RedirectStandardError = true;
+                startInfo.RedirectStandardInput = true;
                 startInfo.EnvironmentVariables["DEEPSEEK_API_KEY"] = apiKey;
                 startInfo.EnvironmentVariables["DEEPSEEK_BASE_URL"] = "https://api.deepseek.com/anthropic";
                 startInfo.EnvironmentVariables["MODEL_MAP_JSON"] = BuildModelMapJson(opusAlias, opusTarget, sonnetAlias, sonnetTarget);
@@ -462,7 +488,7 @@ namespace ClaudeDeepSeekProxyManager
             }
         }
 
-        private void StopOwnedProxy()
+        private void StopOwnedProxy(string reason = "manual_stop")
         {
             ReleaseExitedProxyProcess();
             if (_proxyProcess == null || _proxyProcess.HasExited)
@@ -479,11 +505,20 @@ namespace ClaudeDeepSeekProxyManager
                 return;
             }
 
+            var process = _proxyProcess;
+            var stopped = false;
             try
             {
                 SetStatus(StatusKind.Starting, "正在停止", "正在结束本管理器启动的代理进程…");
-                _proxyProcess.Kill();
-                _proxyProcess.WaitForExit(3000);
+                var gracefulRequested = TryRequestGracefulShutdown(process, reason);
+                if (gracefulRequested)
+                    stopped = process.WaitForExit(2800) || process.HasExited;
+                if (!stopped)
+                {
+                    process.Kill();
+                    stopped = process.WaitForExit(1000) || process.HasExited;
+                }
+                if (!stopped) throw new TimeoutException("代理进程未能在 3 秒内退出。");
             }
             catch (Exception exception)
             {
@@ -492,8 +527,11 @@ namespace ClaudeDeepSeekProxyManager
             }
             finally
             {
-                _proxyProcess.Dispose();
-                _proxyProcess = null;
+                if (stopped)
+                {
+                    process.Dispose();
+                    if (ReferenceEquals(_proxyProcess, process)) _proxyProcess = null;
+                }
             }
 
             _externalProxyDetected = false;
@@ -510,7 +548,7 @@ namespace ClaudeDeepSeekProxyManager
                 return;
             }
 
-            StopOwnedProxy();
+            StopOwnedProxy("restart");
             await Task.Delay(500);
             await StartProxyAsync();
         }
@@ -521,17 +559,21 @@ namespace ClaudeDeepSeekProxyManager
             try
             {
                 var healthy = await IsProxyHealthyAsync();
-                if (healthy)
+                var modelsAvailable = healthy && await IsProxyModelsAvailableAsync();
+                if (modelsAvailable)
                 {
                     SetStatus(StatusKind.Success, "连接正常", "本地健康检查和模型列表均可访问。");
                     if (showDialog)
-                        MessageBox.Show("本地代理连接正常。", "测试成功", MessageBoxButton.OK, MessageBoxImage.Information);
+                        MessageBox.Show("本地代理连接正常，模型列表读取成功。", "测试成功", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
                 else
                 {
-                    SetStatus(StatusKind.Error, "连接失败", "无法访问本地代理，请确认代理已经启动。");
+                    var detail = healthy
+                        ? "健康检查正常，但模型列表读取失败。"
+                        : "无法访问本地代理，请确认代理已经启动。";
+                    SetStatus(StatusKind.Error, "连接失败", detail);
                     if (showDialog)
-                        MessageBox.Show("无法访问本地代理。", "测试失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        MessageBox.Show(detail, "测试失败", MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
             }
             finally
@@ -548,6 +590,7 @@ namespace ClaudeDeepSeekProxyManager
             {
                 if (_proxyProcess != null && _proxyProcess.HasExited)
                 {
+                    ReleaseExitedProxyProcess();
                     _externalProxyDetected = false;
                     SetStatus(StatusKind.Error, "代理意外退出", "请查看日志了解详细原因，然后重新启动。");
                     UpdateButtonState(false, false);
@@ -592,6 +635,7 @@ namespace ClaudeDeepSeekProxyManager
                     request.Timeout = 1500;
                     request.ReadWriteTimeout = 1500;
                     request.Proxy = null;
+                    request.KeepAlive = false;
                     request.Headers[HttpRequestHeader.Authorization] = "Bearer " + gatewayKey;
                     using (var response = (HttpWebResponse)request.GetResponse())
                     using (var reader = new StreamReader(response.GetResponseStream()))
@@ -607,13 +651,44 @@ namespace ClaudeDeepSeekProxyManager
             });
         }
 
+        private async Task<bool> IsProxyModelsAvailableAsync()
+        {
+            int port;
+            if (!TryGetPortSilently(out port)) return false;
+            var gatewayKey = _gatewayApiKey;
+            if (string.IsNullOrWhiteSpace(gatewayKey)) return false;
+
+            return await Task.Run(delegate
+            {
+                try
+                {
+                    var request = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:" + port + "/v1/models");
+                    request.Method = "GET";
+                    request.Timeout = 1500;
+                    request.ReadWriteTimeout = 1500;
+                    request.Proxy = null;
+                    request.KeepAlive = false;
+                    request.Headers[HttpRequestHeader.Authorization] = "Bearer " + gatewayKey;
+                    using (var response = (HttpWebResponse)request.GetResponse())
+                    using (var reader = new StreamReader(response.GetResponseStream()))
+                    {
+                        var body = reader.ReadToEnd();
+                        return response.StatusCode == HttpStatusCode.OK &&
+                            Regex.IsMatch(body, "\\\"data\\\"\\s*:\\s*\\[\\s*\\{");
+                    }
+                }
+                catch
+                {
+                    return false;
+                }
+            });
+        }
+
         private void OnProxyOutput(object sender, DataReceivedEventArgs e)
         {
-            if (string.IsNullOrWhiteSpace(e.Data)) return;
-            Dispatcher.BeginInvoke(new Action(delegate
-            {
-                _statusDetail.Text = Shorten(e.Data, 120);
-            }));
+            // Keep both redirected streams drained. Runtime details belong in the
+            // dedicated log window; updating the main status for every line caused
+            // unnecessary WPF layout and rendering work during long sessions.
         }
 
         private void OnProxyExited(object sender, EventArgs e)
@@ -622,6 +697,8 @@ namespace ClaudeDeepSeekProxyManager
             Dispatcher.BeginInvoke(new Action(delegate
             {
                 if (_exiting || _proxyProcess == null || !ReferenceEquals(exitedProcess, _proxyProcess)) return;
+                _proxyProcess = null;
+                exitedProcess.Dispose();
                 _externalProxyDetected = false;
                 SetStatus(StatusKind.Error, "代理意外退出", "请查看日志了解详细原因，然后重新启动。" );
                 UpdateButtonState(false, false);
@@ -636,6 +713,7 @@ namespace ClaudeDeepSeekProxyManager
                 _logWindow.WindowState = WindowState.Normal;
                 _logWindow.Activate();
                 RefreshLog();
+                _logTimer.Start();
                 return;
             }
 
@@ -658,6 +736,7 @@ namespace ClaudeDeepSeekProxyManager
             ((Button)root.FindName("OpenLogFolderButton")).Click += delegate { OpenAppFolder(); };
             window.Closed += delegate
             {
+                _logTimer.Stop();
                 _logWindow = null;
                 _logBox = null;
                 _lastLogText = "";
@@ -666,6 +745,7 @@ namespace ClaudeDeepSeekProxyManager
             _logWindow = window;
             _lastLogText = "";
             RefreshLog();
+            _logTimer.Start();
             window.Show();
         }
 
@@ -1124,6 +1204,7 @@ namespace ClaudeDeepSeekProxyManager
         {
             Show();
             WindowState = WindowState.Normal;
+            UpdatePollingCadence();
             Activate();
             Topmost = true;
             Topmost = false;
@@ -1138,6 +1219,10 @@ namespace ClaudeDeepSeekProxyManager
 
         private void SetStatus(StatusKind kind, string title, string detail)
         {
+            if (_lastStatusKind == kind && _lastStatusTitle == title && _lastStatusDetail == detail) return;
+            _lastStatusKind = kind;
+            _lastStatusTitle = title;
+            _lastStatusDetail = detail;
             unchecked { _statusGeneration++; }
             _statusText.Text = title;
             _statusDetail.Text = detail;
@@ -1146,21 +1231,22 @@ namespace ClaudeDeepSeekProxyManager
             switch (kind)
             {
                 case StatusKind.Success:
-                    statusBrush = new SolidColorBrush(Color.FromRgb(31, 170, 104));
+                    statusBrush = SuccessBrush;
                     break;
                 case StatusKind.Starting:
-                    statusBrush = new SolidColorBrush(Color.FromRgb(238, 164, 55));
+                    statusBrush = StartingBrush;
                     break;
                 case StatusKind.Error:
-                    statusBrush = new SolidColorBrush(Color.FromRgb(225, 75, 75));
+                    statusBrush = ErrorBrush;
                     break;
                 default:
-                    statusBrush = new SolidColorBrush(Color.FromRgb(151, 162, 178));
+                    statusBrush = StoppedBrush;
                     break;
             }
             _statusDot.Fill = statusBrush;
             if (_centerStatusDot != null) _centerStatusDot.Fill = statusBrush;
-            _trayIcon.Text = Shorten("DeepSeek 代理 - " + title, 63);
+            var trayText = Shorten("DeepSeek 代理 - " + title, 63);
+            if (_trayIcon.Text != trayText) _trayIcon.Text = trayText;
         }
 
         private async void ShowTransientStatus(string title, string detail, StatusKind kind)
@@ -1174,19 +1260,25 @@ namespace ClaudeDeepSeekProxyManager
 
         private void UpdateButtonState(bool running, bool owned)
         {
-            _startButton.IsEnabled = !running;
-            _stopButton.IsEnabled = running && owned;
-            _restartButton.IsEnabled = running && owned;
-            _trayStartItem.Enabled = !running;
-            _trayStopItem.Enabled = running && owned;
-            _portBox.IsEnabled = !running;
-            _sonnetAliasBox.IsEnabled = !running;
-            _sonnetTargetBox.IsEnabled = !running;
-            _opusAliasBox.IsEnabled = !running;
-            _opusTargetBox.IsEnabled = !running;
-            _nodeText.Text = string.IsNullOrEmpty(_nodePath)
+            if (_lastRunningState != running || _lastOwnedState != owned)
+            {
+                _lastRunningState = running;
+                _lastOwnedState = owned;
+                _startButton.IsEnabled = !running;
+                _stopButton.IsEnabled = running && owned;
+                _restartButton.IsEnabled = running && owned;
+                _trayStartItem.Enabled = !running;
+                _trayStopItem.Enabled = running && owned;
+                _portBox.IsEnabled = !running;
+                _sonnetAliasBox.IsEnabled = !running;
+                _sonnetTargetBox.IsEnabled = !running;
+                _opusAliasBox.IsEnabled = !running;
+                _opusTargetBox.IsEnabled = !running;
+            }
+            var nodeText = string.IsNullOrEmpty(_nodePath)
                 ? "Node.js 将在启动时自动检测"
                 : "Node.js " + (string.IsNullOrEmpty(_nodeVersion) ? "已检测" : _nodeVersion) + " · 已就绪";
+            if (_nodeText.Text != nodeText) _nodeText.Text = nodeText;
         }
 
         private void ReleaseExitedProxyProcess()
@@ -1211,10 +1303,33 @@ namespace ClaudeDeepSeekProxyManager
             return "\"" + value.Replace("\"", "\\\"") + "\"";
         }
 
+        private static bool TryRequestGracefulShutdown(Process process, string reason)
+        {
+            try
+            {
+                if (process == null || process.HasExited) return true;
+                var safeReason = Regex.Replace(reason ?? "manager_request", "[^a-zA-Z0-9_.-]", "_");
+                process.StandardInput.WriteLine("{\"command\":\"shutdown\",\"reason\":\"" + safeReason + "\"}");
+                process.StandardInput.Flush();
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private static string Shorten(string value, int maximum)
         {
             if (string.IsNullOrEmpty(value) || value.Length <= maximum) return value;
             return value.Substring(0, maximum - 1) + "…";
+        }
+
+        private static SolidColorBrush CreateFrozenBrush(byte red, byte green, byte blue)
+        {
+            var brush = new SolidColorBrush(Color.FromRgb(red, green, blue));
+            brush.Freeze();
+            return brush;
         }
 
         private enum StatusKind { Stopped, Starting, Success, Error }
@@ -1229,7 +1344,6 @@ namespace ClaudeDeepSeekProxyManager
     <SolidColorBrush x:Key=""Ink"" Color=""#263449""/>
     <SolidColorBrush x:Key=""Muted"" Color=""#748096""/>
     <SolidColorBrush x:Key=""Primary"" Color=""#4B76E5""/>
-    <DropShadowEffect x:Key=""CardShadow"" BlurRadius=""10"" ShadowDepth=""1"" Direction=""270"" Color=""#52657A"" Opacity=""0.06""/>
     <Style x:Key=""DisplayText"" TargetType=""TextBlock""><Setter Property=""FontSize"" Value=""22""/><Setter Property=""FontWeight"" Value=""SemiBold""/></Style>
     <Style x:Key=""HeroText"" TargetType=""TextBlock""><Setter Property=""FontSize"" Value=""20""/><Setter Property=""FontWeight"" Value=""SemiBold""/></Style>
     <Style x:Key=""SectionTitleText"" TargetType=""TextBlock""><Setter Property=""FontSize"" Value=""16""/><Setter Property=""FontWeight"" Value=""SemiBold""/></Style>
@@ -1239,8 +1353,7 @@ namespace ClaudeDeepSeekProxyManager
     <Style x:Key=""MonoValueText"" TargetType=""TextBlock""><Setter Property=""FontFamily"" Value=""Consolas""/><Setter Property=""FontSize"" Value=""13""/><Setter Property=""FontWeight"" Value=""Normal""/></Style>
     <Style x:Key=""Card"" TargetType=""Border"">
       <Setter Property=""Background"" Value=""White""/><Setter Property=""CornerRadius"" Value=""12""/>
-      <Setter Property=""BorderBrush"" Value=""#E4E9F1""/><Setter Property=""BorderThickness"" Value=""1""/>
-      <Setter Property=""Effect"" Value=""{StaticResource CardShadow}""/>
+      <Setter Property=""BorderBrush"" Value=""#DDE5F0""/><Setter Property=""BorderThickness"" Value=""1""/>
     </Style>
     <Style x:Key=""ButtonFocusVisual"" TargetType=""{x:Type Control}"">
       <Setter Property=""Template""><Setter.Value><ControlTemplate TargetType=""{x:Type Control}"">

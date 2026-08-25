@@ -23,7 +23,7 @@ async function startProxy(t, environment) {
       LOG_FILE: "",
       ...environment,
     },
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
   });
 
   let output = "";
@@ -35,7 +35,13 @@ async function startProxy(t, environment) {
   child.stderr.on("data", (chunk) => {
     output += chunk;
   });
-  t.after(() => {
+  t.after(async () => {
+    if (child.exitCode !== null) return;
+    child.stdin.write(`${JSON.stringify({ command: "shutdown", reason: "test_cleanup" })}\n`);
+    await Promise.race([
+      once(child, "exit"),
+      new Promise((resolve) => setTimeout(resolve, 3_000)),
+    ]);
     if (child.exitCode === null) child.kill();
   });
 
@@ -46,7 +52,24 @@ async function startProxy(t, environment) {
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
 
-  return child;
+  return {
+    child,
+    getOutput: () => output,
+  };
+}
+
+async function waitForOutput(proxy, pattern, timeoutMs = 2_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!pattern.test(proxy.getOutput())) {
+    if (proxy.child.exitCode !== null) throw new Error(`Proxy exited early:\n${proxy.getOutput()}`);
+    if (Date.now() > deadline) throw new Error(`Expected proxy output ${pattern}:\n${proxy.getOutput()}`);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+async function stopProxy(proxy, reason) {
+  proxy.child.stdin.write(`${JSON.stringify({ command: "shutdown", reason })}\n`);
+  await once(proxy.child, "exit");
 }
 
 test("rewrites Claude-facing model IDs without changing stream mode", () => {
@@ -111,7 +134,7 @@ test("enforces local browser isolation, body limits, and upstream timeouts", asy
   const proxyPort = await listen(reservation);
   await new Promise((resolve, reject) => reservation.close((error) => (error ? reject(error) : resolve())));
 
-  await startProxy(t, {
+  const proxy = await startProxy(t, {
     PORT: String(proxyPort),
     HOST: "127.0.0.1",
     DEEPSEEK_BASE_URL: `http://127.0.0.1:${upstreamPort}/anthropic`,
@@ -176,6 +199,10 @@ test("enforces local browser isolation, body limits, and upstream timeouts", asy
   assert.equal(successfulUpstreamRequest.apiKey, "test-upstream-key");
   assert.equal(successfulUpstreamRequest.body.model, "deepseek-chat");
   assert.match(successfulUpstreamRequest.url, /success=1/);
+  await waitForOutput(proxy, /INFO request_complete /);
+  assert.match(proxy.getOutput(), /INFO upstream_response \{"request_id":"[^"]+","status":200,"path":"\/v1\/messages","ttfb_ms":\d+\}/);
+  assert.match(proxy.getOutput(), /INFO request_complete \{"request_id":"[^"]+","status":200,"path":"\/v1\/messages","ttfb_ms":\d+,"duration_ms":\d+\}/);
+  assert.match(proxy.getOutput(), /INFO startup \{"version":"1\.6\.10","pid":\d+,"node":"v[^\"]+","host":"127\.0\.0\.1","port":\d+\}/);
 
   const tooLarge = await fetch(`${baseUrl}/v1/messages/count_tokens`, {
     method: "POST",
@@ -195,6 +222,10 @@ test("enforces local browser isolation, body limits, and upstream timeouts", asy
   });
   assert.equal(timedOut.status, 504);
   assert.match((await timedOut.json()).error.message, /timed out/i);
+
+  await stopProxy(proxy, "test_complete");
+  assert.match(proxy.getOutput(), /INFO shutdown_requested \{"version":"1\.6\.10","pid":\d+,"reason":"test_complete","uptime_ms":\d+\}/);
+  assert.match(proxy.getOutput(), /INFO shutdown_complete \{"version":"1\.6\.10","pid":\d+,"reason":"test_complete","uptime_ms":\d+,"exit_code":0\}/);
 });
 
 test("requires Gateway authentication for localhost health and model endpoints", async (t) => {

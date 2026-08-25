@@ -63,6 +63,8 @@ const UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS || 120_000);
 const TRANSFORM_RESPONSES = process.env.TRANSFORM_RESPONSES === "true";
 const FILTER_THINKING_BLOCKS = process.env.FILTER_THINKING_BLOCKS === "true";
 const FORCE_UPSTREAM_NON_STREAM = process.env.FORCE_UPSTREAM_NON_STREAM === "true";
+const APP_VERSION = "1.6.10";
+const PROCESS_STARTED_AT = Date.now();
 
 if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
   throw new Error(`Invalid PORT: ${process.env.PORT}`);
@@ -100,6 +102,12 @@ let logFileBytes = (() => {
   }
 })();
 let logWriteQueue = Promise.resolve();
+let requestSequence = 0;
+
+function createRequestId() {
+  requestSequence = (requestSequence + 1) % 0x1000000;
+  return `${Date.now().toString(36)}-${requestSequence.toString(36)}`;
+}
 
 function logLine(level, message, extra = undefined) {
   const suffix = extra === undefined ? "" : ` ${JSON.stringify(extra)}`;
@@ -124,6 +132,10 @@ function logLine(level, message, extra = undefined) {
         console.error(`${new Date().toISOString()} ERROR failed_to_write_log ${error.message}`);
       });
   }
+}
+
+async function flushLogs() {
+  await logWriteQueue;
 }
 
 async function rotateLogIfNeeded(incomingBytes = 0) {
@@ -425,7 +437,7 @@ function textFromMessagePayload(payload) {
     .join("");
 }
 
-async function sendJsonAsSse(upstream, res, aliasModel, startedAt, path) {
+async function sendJsonAsSse(upstream, res, aliasModel, path, requestId) {
   const rawText = await upstream.text();
   let payload;
 
@@ -434,7 +446,7 @@ async function sendJsonAsSse(upstream, res, aliasModel, startedAt, path) {
   } catch {
     res.writeHead(upstream.status, baseResponseHeaders("text/plain; charset=utf-8"));
     res.end(rawText);
-    return;
+    return upstream.status;
   }
 
   if (upstream.status >= 400) {
@@ -444,7 +456,7 @@ async function sendJsonAsSse(upstream, res, aliasModel, startedAt, path) {
       "content-length": String(body.length),
     });
     res.end(body);
-    return;
+    return upstream.status;
   }
 
   const message = filterThinkingFromJson(payload, aliasModel);
@@ -452,13 +464,14 @@ async function sendJsonAsSse(upstream, res, aliasModel, startedAt, path) {
     .filter((block) => block?.type !== "text")
     .map((block) => block?.type || "unknown");
   if (unsupportedBlocks.length > 0) {
-    logLine("ERROR", "synthetic_sse_unsupported_content", { path, content_types: unsupportedBlocks });
-    return sendJson(res, 502, {
+    logLine("ERROR", "synthetic_sse_unsupported_content", { request_id: requestId, path, content_types: unsupportedBlocks });
+    sendJson(res, 502, {
       error: {
         type: "proxy_error",
         message: `Cannot safely convert non-stream content blocks to SSE: ${unsupportedBlocks.join(", ")}.`,
       },
     });
+    return 502;
   }
 
   const text = textFromMessagePayload(message);
@@ -502,7 +515,7 @@ async function sendJsonAsSse(upstream, res, aliasModel, startedAt, path) {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   }
   res.end();
-  logLine("INFO", "sse_complete", { path, duration_ms: Date.now() - startedAt, synthetic: true });
+  return 200;
 }
 
 function credentialFromRequest(req) {
@@ -558,9 +571,10 @@ function handleCountTokens(rawBody, contentType, res) {
   return sendJson(res, 200, { input_tokens: estimated });
 }
 
-async function handleProxy(req, res) {
-  const startedAt = Date.now();
+async function handleProxy(req, res, context) {
+  const startedAt = context.startedAt;
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+  context.path = url.pathname;
   const origin = headerValue(req.headers, "origin");
 
   if (!originIsAllowed(origin)) {
@@ -623,6 +637,8 @@ async function handleProxy(req, res) {
     });
   }
 
+  const requestId = createRequestId();
+  context.requestId = requestId;
   const rawBody = await readBody(req);
   const aliasModel = modelFromRequestBody(rawBody, req.headers["content-type"]);
   const wantsStream = requestWantsStream(rawBody, req.headers["content-type"]);
@@ -635,8 +651,8 @@ async function handleProxy(req, res) {
     forceNonStream,
   });
   const { buffer: body, note } = bufferInfo;
-  if (note) logLine("INFO", "model_rewrite", { rewrite: note });
-  if (didForceNonStream) logLine("INFO", "force_upstream_non_stream", { path: url.pathname, model: aliasModel });
+  if (note) logLine("INFO", "model_rewrite", { request_id: requestId, rewrite: note });
+  if (didForceNonStream) logLine("INFO", "force_upstream_non_stream", { request_id: requestId, path: url.pathname, model: aliasModel });
 
   const upstreamUrl = `${UPSTREAM_BASE}${url.pathname}${url.search}`;
   const abortController = new AbortController();
@@ -648,7 +664,10 @@ async function handleProxy(req, res) {
   timeout.unref?.();
 
   const abortForClientDisconnect = () => {
-    if (!res.writableEnded) abortController.abort(new Error("Client disconnected."));
+    if (!res.writableEnded) {
+      context.clientDisconnected = true;
+      abortController.abort(new Error("Client disconnected."));
+    }
   };
   req.once("aborted", abortForClientDisconnect);
   res.once("close", abortForClientDisconnect);
@@ -660,12 +679,25 @@ async function handleProxy(req, res) {
       body: isReadOnlyMethod(req.method) ? undefined : body,
       signal: abortController.signal,
     });
+    const ttfbMs = Date.now() - startedAt;
+    context.ttfbMs = ttfbMs;
 
     if (upstream.status >= 400) {
-      logLine("WARN", "upstream_error", { status: upstream.status, path: url.pathname, duration_ms: Date.now() - startedAt });
+      logLine("WARN", "upstream_error", { request_id: requestId, status: upstream.status, path: url.pathname, ttfb_ms: ttfbMs });
     } else {
-      logLine("INFO", "upstream_response", { status: upstream.status, path: url.pathname, duration_ms: Date.now() - startedAt });
+      logLine("INFO", "upstream_response", { request_id: requestId, status: upstream.status, path: url.pathname, ttfb_ms: ttfbMs });
     }
+
+    const logComplete = (status, extra = undefined) => {
+      logLine("INFO", "request_complete", {
+        request_id: requestId,
+        status,
+        path: url.pathname,
+        ttfb_ms: ttfbMs,
+        duration_ms: Date.now() - startedAt,
+        ...extra,
+      });
+    };
 
     const responseHeaders = {};
     upstream.headers.forEach((value, key) => {
@@ -677,7 +709,9 @@ async function handleProxy(req, res) {
     const contentType = upstream.headers.get("content-type") || "";
     const shouldTransformMessages = TRANSFORM_RESPONSES && url.pathname === "/v1/messages" && aliasModel;
     if (shouldTransformMessages && didForceNonStream && contentType.includes("application/json")) {
-      return await sendJsonAsSse(upstream, res, aliasModel, startedAt, url.pathname);
+      const status = await sendJsonAsSse(upstream, res, aliasModel, url.pathname, requestId);
+      logComplete(status, { synthetic_sse: true });
+      return;
     }
 
     if (shouldTransformMessages && contentType.includes("text/event-stream") && upstream.body) {
@@ -685,21 +719,28 @@ async function handleProxy(req, res) {
       const transformed = Readable.from(transformSseStream(upstream.body, aliasModel));
       try {
         await pipeline(transformed, res);
-        logLine("INFO", "sse_complete", { path: url.pathname, duration_ms: Date.now() - startedAt });
+        logComplete(upstream.status, { transformed_sse: true });
       } catch (error) {
-        logLine("ERROR", "sse_transform_error", describeError(error));
+        logLine("ERROR", "sse_transform_error", { request_id: requestId, path: url.pathname, error: describeError(error) });
         throw error;
       }
       return;
     }
 
     if (shouldTransformMessages && contentType.includes("application/json")) {
-      return await sendTransformedJson(upstream, res, responseHeaders, aliasModel);
+      await sendTransformedJson(upstream, res, responseHeaders, aliasModel);
+      logComplete(upstream.status, { transformed_json: true });
+      return;
     }
 
     res.writeHead(upstream.status, responseHeaders);
-    if (!upstream.body) return res.end();
+    if (!upstream.body) {
+      res.end();
+      logComplete(upstream.status);
+      return;
+    }
     await pipeline(Readable.fromWeb(upstream.body), res);
+    logComplete(upstream.status);
   } catch (error) {
     if (upstreamTimedOut) {
       throw new HttpError(504, `Upstream request timed out after ${UPSTREAM_TIMEOUT_MS} ms.`);
@@ -713,9 +754,28 @@ async function handleProxy(req, res) {
 }
 
 export function handleRequest(req, res) {
-  handleProxy(req, res).catch((error) => {
-    logLine("ERROR", "proxy_error", describeError(error));
-    if (!res.headersSent) {
+  const context = {
+    startedAt: Date.now(),
+    requestId: "",
+    path: "",
+    ttfbMs: undefined,
+    clientDisconnected: false,
+  };
+  handleProxy(req, res, context).catch((error) => {
+    const details = {
+      request_id: context.requestId || undefined,
+      method: req.method,
+      path: context.path,
+      ttfb_ms: context.ttfbMs,
+      duration_ms: Date.now() - context.startedAt,
+      error: describeError(error),
+    };
+    if (context.clientDisconnected || req.aborted || res.destroyed) {
+      logLine("WARN", "client_disconnected", details);
+    } else {
+      logLine("ERROR", "proxy_error", details);
+    }
+    if (!res.headersSent && !res.destroyed) {
       const statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : 502;
       sendJson(res, statusCode, {
         error: {
@@ -734,8 +794,96 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     throw new Error("PROXY_API_KEY is required.");
   }
   const server = http.createServer(handleRequest);
+  let shuttingDown = false;
+  let shutdownTimer;
+
+  const shutdown = (reason, exitCode = 0, details = {}) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    const uptimeMs = Date.now() - PROCESS_STARTED_AT;
+    logLine("INFO", "shutdown_requested", {
+      version: APP_VERSION,
+      pid: process.pid,
+      reason,
+      uptime_ms: uptimeMs,
+      ...details,
+    });
+
+    shutdownTimer = setTimeout(async () => {
+      logLine("WARN", "shutdown_forced", {
+        version: APP_VERSION,
+        pid: process.pid,
+        reason,
+        uptime_ms: Date.now() - PROCESS_STARTED_AT,
+      });
+      await flushLogs();
+      process.exit(exitCode || 1);
+    }, 2500);
+    shutdownTimer.unref?.();
+
+    server.close(async (error) => {
+      clearTimeout(shutdownTimer);
+      const finalExitCode = error ? 1 : exitCode;
+      logLine(error ? "ERROR" : "INFO", "shutdown_complete", {
+        version: APP_VERSION,
+        pid: process.pid,
+        reason,
+        uptime_ms: Date.now() - PROCESS_STARTED_AT,
+        exit_code: finalExitCode,
+        ...(error ? { error: describeError(error) } : {}),
+      });
+      await flushLogs();
+      process.exit(finalExitCode);
+    });
+  };
+
+  process.once("SIGINT", () => shutdown("signal", 0, { signal: "SIGINT" }));
+  process.once("SIGTERM", () => shutdown("signal", 0, { signal: "SIGTERM" }));
+
+  if (!process.stdin.isTTY) {
+    process.stdin.setEncoding("utf8");
+    let commandBuffer = "";
+    process.stdin.on("data", (chunk) => {
+      commandBuffer += chunk;
+      const lines = commandBuffer.split(/\r?\n/);
+      commandBuffer = lines.pop() || "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const command = JSON.parse(line);
+          if (command?.command === "shutdown") {
+            const reason = typeof command.reason === "string" && command.reason
+              ? command.reason.slice(0, 64)
+              : "manager_request";
+            shutdown(reason);
+          }
+        } catch (error) {
+          logLine("WARN", "invalid_control_command", { error: describeError(error) });
+        }
+      }
+    });
+    process.stdin.resume();
+  }
+
+  server.once("error", async (error) => {
+    logLine("ERROR", "server_error", {
+      version: APP_VERSION,
+      pid: process.pid,
+      uptime_ms: Date.now() - PROCESS_STARTED_AT,
+      error: describeError(error),
+    });
+    await flushLogs();
+    if (!shuttingDown) process.exit(1);
+  });
 
   server.listen(PORT, HOST, () => {
+    logLine("INFO", "startup", {
+      version: APP_VERSION,
+      pid: process.pid,
+      node: process.version,
+      host: HOST,
+      port: PORT,
+    });
     logLine("INFO", `listening http://${HOST}:${PORT}`);
     logLine("INFO", `upstream ${UPSTREAM_BASE}`);
     logLine("INFO", `aliases ${ALIASES.map((id) => `${id}=>${MODEL_MAP[id]}`).join(", ")}`);

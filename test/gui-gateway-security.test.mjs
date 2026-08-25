@@ -6,6 +6,7 @@ const csharpPath = new URL("../desktop/DeepSeekProxyManager.cs", import.meta.url
 const powershellPath = new URL("../desktop/DeepSeekProxyManager.ps1", import.meta.url);
 const trayThemePath = new URL("../desktop/TrayMenuTheme.cs", import.meta.url);
 const buildPath = new URL("../build-gui.ps1", import.meta.url);
+const nodeLicensePath = new URL("../third_party/NODE-LICENSE.txt", import.meta.url);
 
 test("persists a stable encrypted Gateway key in both GUI launchers", async () => {
   const [csharp, powershell] = await Promise.all([
@@ -44,6 +45,17 @@ test("uses the shared light tray menu theme in both GUI launchers", async () => 
   assert.match(build, /Copy-Item -LiteralPath \$trayThemeSourcePath/);
 });
 
+test("ships the Node.js license with portable builds", async () => {
+  const [build, nodeLicense] = await Promise.all([
+    readFile(buildPath, "utf8"),
+    readFile(nodeLicensePath, "utf8"),
+  ]);
+
+  assert.match(build, /third_party\\NODE-LICENSE\.txt/);
+  assert.match(build, /throw "No Node\.js license notice was found/);
+  assert.match(nodeLicense, /Node\.js is licensed for use as follows:/);
+});
+
 test("authenticates GUI health checks with the Gateway key", async () => {
   const [csharp, powershell] = await Promise.all([
     readFile(csharpPath, "utf8"),
@@ -51,7 +63,50 @@ test("authenticates GUI health checks with the Gateway key", async () => {
   ]);
 
   assert.match(csharp, /request\.Headers\[HttpRequestHeader\.Authorization\] = "Bearer " \+ gatewayKey/);
+  assert.match(csharp, /IsProxyModelsAvailableAsync\(\)/);
+  assert.match(csharp, /\/v1\/models/);
   assert.match(powershell, /\$request\.Headers\[\[Net\.HttpRequestHeader\]::Authorization\] = "Bearer \$gatewayKey"/);
+  assert.match(powershell, /function Test-ProxyModels/);
+  assert.match(powershell, /\/v1\/models/);
+});
+
+test("reduces long-running GUI rendering and polling work", async () => {
+  const [csharp, powershell] = await Promise.all([
+    readFile(csharpPath, "utf8"),
+    readFile(powershellPath, "utf8"),
+  ]);
+
+  assert.match(csharp, /AssemblyVersion\("1\.6\.10\.0"\)/);
+  assert.match(csharp, /RenderOptions\.ProcessRenderMode = RenderMode\.SoftwareOnly/);
+  assert.match(csharp, /foreground \? 10 : 45/);
+  assert.match(csharp, /_lastStatusKind == kind/);
+  assert.match(csharp, /_logTimer\.Stop\(\)/);
+  assert.doesNotMatch(csharp, /<DropShadowEffect/);
+  assert.doesNotMatch(csharp, /Property=""Effect""/);
+
+  assert.match(powershell, /if \(\$signature -eq \$script:lastStatusSignature\) \{ return \}/);
+  assert.match(powershell, /RenderOptions\]::ProcessRenderMode = \[Windows\.Interop\.RenderMode\]::SoftwareOnly/);
+  assert.match(powershell, /if \(\$foreground\) \{ 10 \} else \{ 45 \}/);
+  assert.match(powershell, /\$logTimer\.Stop\(\)/);
+});
+
+test("closes health probes and records deliberate proxy shutdowns", async () => {
+  const [csharp, powershell] = await Promise.all([
+    readFile(csharpPath, "utf8"),
+    readFile(powershellPath, "utf8"),
+  ]);
+
+  assert.match(csharp, /request\.KeepAlive = false/);
+  assert.match(csharp, /RedirectStandardInput = true/);
+  assert.match(csharp, /TryRequestGracefulShutdown\(process, reason\)/);
+  assert.match(csharp, /StopOwnedProxy\("manager_exit"\)/);
+  assert.match(csharp, /StopOwnedProxy\("restart"\)/);
+
+  assert.match(powershell, /\$request\.KeepAlive = \$false/);
+  assert.match(powershell, /\$info\.RedirectStandardInput = \$true/);
+  assert.match(powershell, /command = "shutdown"; reason = \$Reason/);
+  assert.match(powershell, /Stop-Proxy -Reason "manager_exit"/);
+  assert.match(powershell, /Stop-Proxy -Reason "restart"/);
 });
 
 test("ships the Gateway manager controls and its external XAML fallback", async () => {

@@ -127,10 +127,13 @@ if (-not $SkipBundledNode) {
 
   Copy-Item -LiteralPath $nodeExe -Destination (Join-Path $OutputDirectory "node.exe") -Force
   $nodeLicense = Join-Path (Split-Path -Parent $nodeExe) "LICENSE"
+  if (-not (Test-Path -LiteralPath $nodeLicense -PathType Leaf)) {
+    $nodeLicense = Join-Path $PSScriptRoot "third_party\NODE-LICENSE.txt"
+  }
   if (Test-Path -LiteralPath $nodeLicense -PathType Leaf) {
     Copy-Item -LiteralPath $nodeLicense -Destination (Join-Path $OutputDirectory "NODE-LICENSE.txt") -Force
   } else {
-    Write-Warning "No Node.js LICENSE file was found beside $nodeExe. Add the matching Node.js license notice before external redistribution."
+    throw "No Node.js license notice was found. Add third_party\NODE-LICENSE.txt before external redistribution."
   }
   Write-Host "Bundled Node.js v$nodeVersion from: $nodeExe"
 }

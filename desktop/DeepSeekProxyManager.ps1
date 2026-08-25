@@ -3,6 +3,7 @@ param([switch]$AutoStart)
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Xaml
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing, System.Security
+[Windows.Media.RenderOptions]::ProcessRenderMode = [Windows.Interop.RenderMode]::SoftwareOnly
 
 $trayThemePath = Join-Path $PSScriptRoot "TrayMenuTheme.cs"
 if (-not ("ClaudeDeepSeekProxyManager.TrayMenuTheme" -as [type])) {
@@ -35,6 +36,8 @@ $script:applicationIcon = $null
 $script:logWindow = $null
 $script:logBox = $null
 $script:gatewayApiKey = ""
+$script:lastStatusSignature = ""
+$script:lastButtonSignature = ""
 
 $xamlPath = Join-Path $script:appDirectory "ManagerWindow.xaml"
 $gatewayKeyXamlPath = Join-Path $script:appDirectory "GatewayKeyWindow.xaml"
@@ -107,6 +110,9 @@ if (Test-Path -LiteralPath $iconPath -PathType Leaf) {
 
 function Set-Status {
   param([ValidateSet("Stopped", "Starting", "Success", "Error")][string]$Kind, [string]$Title, [string]$Detail)
+  $signature = "$Kind`0$Title`0$Detail"
+  if ($signature -eq $script:lastStatusSignature) { return }
+  $script:lastStatusSignature = $signature
   $statusText.Text = $Title
   $statusDetail.Text = $Detail
   $proxyStateTitle.Text = $Title
@@ -116,8 +122,15 @@ function Set-Status {
   $centerStatusDot.Fill = $statusBrush
   if ($script:tray) {
     $trayText = "DeepSeek 代理 - $Title"
-    $script:tray.Text = $trayText.Substring(0, [Math]::Min(63, $trayText.Length))
+    $trayText = $trayText.Substring(0, [Math]::Min(63, $trayText.Length))
+    if ($script:tray.Text -ne $trayText) { $script:tray.Text = $trayText }
   }
+}
+
+function Update-PollingCadence {
+  if (-not $healthTimer) { return }
+  $foreground = $window.IsVisible -and $window.WindowState -ne [Windows.WindowState]::Minimized
+  $healthTimer.Interval = [TimeSpan]::FromSeconds($(if ($foreground) { 10 } else { 45 }))
 }
 
 function Get-ConfiguredPort {
@@ -177,12 +190,35 @@ function Test-ProxyHealth {
     $request.Timeout = 500
     $request.ReadWriteTimeout = 500
     $request.Proxy = $null
+    $request.KeepAlive = $false
     $request.Headers[[Net.HttpRequestHeader]::Authorization] = "Bearer $gatewayKey"
     $response = $request.GetResponse()
     try {
       $reader = New-Object IO.StreamReader($response.GetResponseStream())
       try { $body = $reader.ReadToEnd() } finally { $reader.Dispose() }
       return $response.StatusCode -eq [Net.HttpStatusCode]::OK -and $body -match '"ok"\s*:\s*true'
+    } finally { $response.Dispose() }
+  } catch { return $false }
+}
+
+function Test-ProxyModels {
+  $port = Get-ConfiguredPort
+  if (-not $port) { return $false }
+  $gatewayKey = $script:gatewayApiKey
+  if ([string]::IsNullOrWhiteSpace($gatewayKey)) { return $false }
+  try {
+    $request = [Net.HttpWebRequest]::Create("http://127.0.0.1:$port/v1/models")
+    $request.Method = "GET"
+    $request.Timeout = 1500
+    $request.ReadWriteTimeout = 1500
+    $request.Proxy = $null
+    $request.KeepAlive = $false
+    $request.Headers[[Net.HttpRequestHeader]::Authorization] = "Bearer $gatewayKey"
+    $response = $request.GetResponse()
+    try {
+      $reader = New-Object IO.StreamReader($response.GetResponseStream())
+      try { $body = $reader.ReadToEnd() } finally { $reader.Dispose() }
+      return $response.StatusCode -eq [Net.HttpStatusCode]::OK -and $body -match '"data"\s*:\s*\[\s*\{'
     } finally { $response.Dispose() }
   } catch { return $false }
 }
@@ -357,7 +393,7 @@ function Show-GatewayKeyManager {
   $saved = $dialog.ShowDialog() -eq $true
   if (-not $saved) { return }
   if ($state.Restart) {
-    Stop-Proxy
+    Stop-Proxy -Reason "settings_restart"
     Start-Sleep -Milliseconds 300
     Start-Proxy
     return
@@ -385,19 +421,24 @@ function Set-WindowsAutoStart([bool]$Enabled) {
 }
 
 function Update-Buttons([bool]$Running, [bool]$Owned) {
-  $startButton.IsEnabled = -not $Running
-  $stopButton.IsEnabled = $Running -and $Owned
-  $restartButton.IsEnabled = $Running -and $Owned
-  $portBox.IsEnabled = -not $Running
-  $sonnetAliasBox.IsEnabled = -not $Running
-  $sonnetTargetBox.IsEnabled = -not $Running
-  $opusAliasBox.IsEnabled = -not $Running
-  $opusTargetBox.IsEnabled = -not $Running
-  if ($script:trayStartItem) { $script:trayStartItem.Enabled = -not $Running }
-  if ($script:trayStopItem) { $script:trayStopItem.Enabled = $Running -and $Owned }
-  $nodeText.Text = if ($script:nodePath) {
+  $signature = "$Running`0$Owned"
+  if ($signature -ne $script:lastButtonSignature) {
+    $script:lastButtonSignature = $signature
+    $startButton.IsEnabled = -not $Running
+    $stopButton.IsEnabled = $Running -and $Owned
+    $restartButton.IsEnabled = $Running -and $Owned
+    $portBox.IsEnabled = -not $Running
+    $sonnetAliasBox.IsEnabled = -not $Running
+    $sonnetTargetBox.IsEnabled = -not $Running
+    $opusAliasBox.IsEnabled = -not $Running
+    $opusTargetBox.IsEnabled = -not $Running
+    if ($script:trayStartItem) { $script:trayStartItem.Enabled = -not $Running }
+    if ($script:trayStopItem) { $script:trayStopItem.Enabled = $Running -and $Owned }
+  }
+  $newNodeText = if ($script:nodePath) {
     "Node.js $(if ($script:nodeVersion) { $script:nodeVersion } else { '已检测' }) · 已就绪"
   } else { "Node.js 将在启动时自动检测" }
+  if ($nodeText.Text -ne $newNodeText) { $nodeText.Text = $newNodeText }
 }
 
 function Start-Proxy {
@@ -429,6 +470,7 @@ function Start-Proxy {
   $info.WorkingDirectory = $script:appDirectory
   $info.UseShellExecute = $false
   $info.CreateNoWindow = $true
+  $info.RedirectStandardInput = $true
   $info.EnvironmentVariables["DEEPSEEK_API_KEY"] = $apiKeyBox.Password
   $info.EnvironmentVariables["DEEPSEEK_BASE_URL"] = "https://api.deepseek.com/anthropic"
   $modelMap = @{}
@@ -460,15 +502,35 @@ function Start-Proxy {
   }
 }
 
-function Stop-Proxy {
+function Stop-Proxy([string]$Reason = "manual_stop") {
   if (-not $script:ownedProcess -or $script:ownedProcess.HasExited) {
     if ($script:externalProxy) { Set-Status Success "代理已运行" "该代理不是由本管理器启动，请关闭原 PowerShell 窗口。" }
     else { Set-Status Stopped "代理已停止" "可以安全修改端口或 API Key。" }
     return
   }
   $process = $script:ownedProcess
-  $script:ownedProcess = $null
-  try { $process.Kill(); [void]$process.WaitForExit(3000) } catch { } finally { $process.Dispose() }
+  $stopped = $false
+  try {
+    try {
+      $command = @{ command = "shutdown"; reason = $Reason } | ConvertTo-Json -Compress
+      $process.StandardInput.WriteLine($command)
+      $process.StandardInput.Flush()
+      $stopped = $process.WaitForExit(2800) -or $process.HasExited
+    } catch { $stopped = $false }
+    if (-not $stopped) {
+      $process.Kill()
+      $stopped = $process.WaitForExit(1000) -or $process.HasExited
+    }
+    if (-not $stopped) { throw "代理进程未能在 3 秒内退出。" }
+  } catch {
+    Set-Status Error "停止失败" $_.Exception.Message
+    return
+  } finally {
+    if ($stopped) {
+      $process.Dispose()
+      if ($script:ownedProcess -eq $process) { $script:ownedProcess = $null }
+    }
+  }
   $script:externalProxy = $false
   Set-Status Stopped "代理已停止" "本地端口已释放。"
   Update-Buttons $false $false
@@ -509,6 +571,7 @@ function Show-LogWindow {
     $script:logWindow.WindowState = "Normal"
     [void]$script:logWindow.Activate()
     Refresh-Log
+    $logTimer.Start()
     return
   }
 
@@ -534,9 +597,10 @@ function Show-LogWindow {
   $script:logBox = $root.FindName("LogBox")
   $root.FindName("ClearLogButton").add_Click({ Clear-Log })
   $root.FindName("OpenLogFolderButton").add_Click({ Start-Process -FilePath $script:appDirectory })
-  $script:logWindow.add_Closed({ $script:logWindow = $null; $script:logBox = $null; $script:lastLogText = "" })
+  $script:logWindow.add_Closed({ $logTimer.Stop(); $script:logWindow = $null; $script:logBox = $null; $script:lastLogText = "" })
   $script:lastLogText = ""
   Refresh-Log
+  $logTimer.Start()
   $script:logWindow.Show()
 }
 
@@ -597,7 +661,7 @@ $exitItem = [ClaudeDeepSeekProxyManager.TrayMenuTheme]::CreateItem(
 [void]$menu.Items.Add($exitItem)
 $script:tray.ContextMenuStrip = $menu
 
-$showWindow = { $window.Show(); $window.WindowState = "Normal"; [void]$window.Activate() }
+$showWindow = { $window.Show(); $window.WindowState = "Normal"; Update-PollingCadence; [void]$window.Activate() }
 $showItem.add_Click($showWindow)
 $script:tray.add_DoubleClick($showWindow)
 $script:trayStartItem.add_Click({ Start-Proxy })
@@ -607,8 +671,19 @@ $exitItem.add_Click({ $script:exiting = $true; $window.Close() })
 $saveKeyButton.add_Click({ if (Save-Settings $true) { Set-Status Success "设置已安全保存" "API Key 已加密，模型映射也已保存。" } })
 $startButton.add_Click({ Start-Proxy })
 $stopButton.add_Click({ Stop-Proxy })
-$restartButton.add_Click({ if ($script:externalProxy) { [Windows.MessageBox]::Show("当前代理不是由本管理器启动，无法安全重启。", "无法接管", "OK", "Information") | Out-Null } else { Stop-Proxy; Start-Sleep -Milliseconds 300; Start-Proxy } })
-$testButton.add_Click({ if (Test-ProxyHealth) { [Windows.MessageBox]::Show("本地代理连接正常。", "测试成功", "OK", "Information") | Out-Null } else { [Windows.MessageBox]::Show("无法访问本地代理。", "测试失败", "OK", "Warning") | Out-Null } })
+$restartButton.add_Click({ if ($script:externalProxy) { [Windows.MessageBox]::Show("当前代理不是由本管理器启动，无法安全重启。", "无法接管", "OK", "Information") | Out-Null } else { Stop-Proxy -Reason "restart"; Start-Sleep -Milliseconds 300; Start-Proxy } })
+$testButton.add_Click({
+  $healthy = Test-ProxyHealth
+  $modelsAvailable = $healthy -and (Test-ProxyModels)
+  if ($modelsAvailable) {
+    Set-Status Success "连接正常" "本地健康检查和模型列表均可访问。"
+    [Windows.MessageBox]::Show("本地代理连接正常，模型列表读取成功。", "测试成功", "OK", "Information") | Out-Null
+  } else {
+    $detail = if ($healthy) { "健康检查正常，但模型列表读取失败。" } else { "无法访问本地代理，请确认代理已经启动。" }
+    Set-Status Error "连接失败" $detail
+    [Windows.MessageBox]::Show($detail, "测试失败", "OK", "Warning") | Out-Null
+  }
+})
 $openLogButton.add_Click({ Show-LogWindow })
 $copyEndpointButton.add_Click({
   $port = Get-ConfiguredPort
@@ -626,17 +701,18 @@ $autoStartCheck.add_Click({ [void](Save-Settings $false); Set-WindowsAutoStart (
 $minimizeCheck.add_Click({ [void](Save-Settings $false) })
 
 $healthTimer = New-Object Windows.Threading.DispatcherTimer
-$healthTimer.Interval = [TimeSpan]::FromSeconds(3)
+$healthTimer.Interval = [TimeSpan]::FromSeconds(10)
 $healthTimer.add_Tick({ Refresh-Health })
 $logTimer = New-Object Windows.Threading.DispatcherTimer
-$logTimer.Interval = [TimeSpan]::FromSeconds(1)
+$logTimer.Interval = [TimeSpan]::FromSeconds(2)
 $logTimer.add_Tick({ Refresh-Log })
 
-$window.add_Loaded({ Refresh-Health; $healthTimer.Start(); $logTimer.Start(); if ($AutoStart) { $window.Hide(); if (-not (Test-ProxyHealth)) { Start-Proxy } } })
+$window.add_StateChanged({ Update-PollingCadence })
+$window.add_Loaded({ Update-PollingCadence; Refresh-Health; $healthTimer.Start(); if ($AutoStart) { $window.Hide(); Update-PollingCadence; if (-not (Test-ProxyHealth)) { Start-Proxy } } })
 $window.add_Closing({ param($sender, $eventArgs)
-  if (-not $script:exiting -and $minimizeCheck.IsChecked -eq $true) { $eventArgs.Cancel = $true; $window.Hide(); if ($script:logWindow) { $script:logWindow.Hide() }; $script:tray.ShowBalloonTip(1200, "DeepSeek 代理管理器", "程序仍在系统托盘中运行。", "Info"); return }
+  if (-not $script:exiting -and $minimizeCheck.IsChecked -eq $true) { $eventArgs.Cancel = $true; $window.Hide(); if ($script:logWindow) { $script:logWindow.Hide() }; $logTimer.Stop(); Update-PollingCadence; $script:tray.ShowBalloonTip(1200, "DeepSeek 代理管理器", "程序仍在系统托盘中运行。", "Info"); return }
   if ($script:logWindow) { $script:logWindow.Close() }
-  $healthTimer.Stop(); $logTimer.Stop(); Stop-Proxy; $script:tray.Visible = $false; $script:tray.Dispose()
+  $healthTimer.Stop(); $logTimer.Stop(); Stop-Proxy -Reason "manager_exit"; $script:tray.Visible = $false; $script:tray.Dispose()
   if ($menu) { $menu.Dispose() }
   if ($script:applicationIcon) { $script:applicationIcon.Dispose(); $script:applicationIcon = $null }
 })
@@ -644,7 +720,7 @@ $window.add_Closing({ param($sender, $eventArgs)
 $app = New-Object Windows.Application
 $app.ShutdownMode = "OnExplicitShutdown"
 try { [void]$app.Run($window) } finally {
-  if ($script:ownedProcess -and -not $script:ownedProcess.HasExited) { Stop-Proxy }
+  if ($script:ownedProcess -and -not $script:ownedProcess.HasExited) { Stop-Proxy -Reason "manager_exit" }
   $script:tray.Dispose()
   if ($menu) { $menu.Dispose() }
   if ($script:applicationIcon) { $script:applicationIcon.Dispose(); $script:applicationIcon = $null }

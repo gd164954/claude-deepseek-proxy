@@ -13,6 +13,8 @@ The graphical manager provides fully editable model mappings on both sides, encr
 
 ![DeepSeek Proxy Manager](docs/DeepSeekProxyManager.png)
 
+Download the current portable Windows x64 package from [GitHub Releases](https://github.com/gd164954/claude-deepseek-proxy/releases/latest). Extract the ZIP to a normal writable folder and keep all files together. The portable package already contains Node.js.
+
 Build it without installing a .NET SDK or NuGet packages:
 
 ```powershell
@@ -126,9 +128,15 @@ Invoke-RestMethod `
 Successful runtime logs look like:
 
 ```text
-model_rewrite {"rewrite":"claude-sonnet-4-5 -> deepseek-v4-flash"}
-upstream_response {"status":200,"path":"/v1/messages",...}
+startup {"version":"1.6.10","pid":1234,"node":"v22.x.x","host":"127.0.0.1","port":3210}
+model_rewrite {"request_id":"...","rewrite":"claude-sonnet-4-5 -> deepseek-v4-flash"}
+upstream_response {"request_id":"...","status":200,"path":"/v1/messages","ttfb_ms":184}
+request_complete {"request_id":"...","status":200,"path":"/v1/messages","ttfb_ms":184,"duration_ms":1260}
+shutdown_requested {"version":"1.6.10","pid":1234,"reason":"manager_exit","uptime_ms":3600000}
+shutdown_complete {"version":"1.6.10","pid":1234,"reason":"manager_exit","uptime_ms":3600012,"exit_code":0}
 ```
+
+`ttfb_ms` measures the time until upstream response headers arrive; `duration_ms` on `request_complete` measures the full request, including streamed output. Client cancellations are recorded separately as `client_disconnected` instead of being reported as proxy failures. Startup and shutdown entries include the proxy version, PID, uptime, and the manager-provided stop or restart reason.
 
 By default, the high-frequency local token-count requests are not written to the log. To debug them temporarily, add:
 
