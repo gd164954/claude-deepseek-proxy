@@ -1,0 +1,24 @@
+{
+  "name": "DeepSeek Proxy Manager application icon",
+  "version": "1.6.5",
+  "design": "eight-segment circular route mark",
+  "direction": "lower-left light to upper-right deep",
+  "segmentPaletteClockwiseFromTop": [
+    "#7799EE",
+    "#3559CF",
+    "#496FE2",
+    "#82A3F2",
+    "#B9CEFB",
+    "#DCE8FF",
+    "#CBDCFE",
+    "#AFC6FA"
+  ],
+  "mask": "DeepSeekProxyManager-icon-mask.png",
+  "source": "DeepSeekProxyManager-icon.png",
+  "generator": "build-icon.ps1",
+  "exports": [
+    "DeepSeekProxyManager.ico",
+    "DeepSeekProxyManager-icon-sizes.png"
+  ],
+  "provenance": "The original eight-segment silhouette and transparency are preserved in the mask. The generator deterministically reapplies the approved directional palette and removes isolated transparent-gap artifacts before exporting the source PNG and Windows icon sizes."
+}

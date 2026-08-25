@@ -1,0 +1,13 @@
+{
+  "name": "claude-deepseek-proxy",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:gui": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./build-gui.ps1",
+    "check": "node --check claude-deepseek-proxy.mjs",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -14,3 +14,10 @@ Desktop.ini
 .DS_Store
 .vscode/
 .idea/
+
+# Local desktop build output
+dist/
+
+# Local design review evidence
+design/
+design-qa.md
