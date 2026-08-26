@@ -82,6 +82,7 @@ test("rewrites Claude-facing model IDs without changing stream mode", () => {
   const body = JSON.parse(result.buffer);
 
   assert.equal(body.model, MODEL_MAP["claude-sonnet-4-5"]);
+  assert.equal(MODEL_MAP["claude-haiku-4-5"], "deepseek-v4-flash");
   assert.equal(body.stream, true);
   assert.equal(result.note, "claude-sonnet-4-5 -> deepseek-v4-flash");
 });
@@ -90,9 +91,11 @@ test("loads and validates manual model mappings", () => {
   assert.deepEqual(loadModelMap(JSON.stringify({
     "claude-sonnet-4-5": "deepseek-chat",
     "claude-opus-4-5": "deepseek-reasoner",
+    "claude-haiku-4-5": "deepseek-chat",
   })), {
     "claude-sonnet-4-5": "deepseek-chat",
     "claude-opus-4-5": "deepseek-reasoner",
+    "claude-haiku-4-5": "deepseek-chat",
   });
   assert.throws(() => loadModelMap("not-json"), /Invalid MODEL_MAP_JSON/);
   assert.throws(() => loadModelMap('{"claude-sonnet-4-5":"bad model"}'), /Invalid MODEL_MAP_JSON/);
@@ -145,6 +148,7 @@ test("enforces local browser isolation, body limits, and upstream timeouts", asy
     MODEL_MAP_JSON: JSON.stringify({
       "custom-opus-alias": "deepseek-reasoner",
       "custom-sonnet-alias": "deepseek-chat",
+      "custom-haiku-alias": "deepseek-chat",
     }),
   });
 
@@ -159,7 +163,7 @@ test("enforces local browser isolation, body limits, and upstream timeouts", asy
   const models = await (await fetch(`${baseUrl}/v1/models`, {
     headers: { authorization: "Bearer test-proxy-key" },
   })).json();
-  assert.deepEqual(models.data.map((model) => model.id).sort(), ["custom-opus-alias", "custom-sonnet-alias"]);
+  assert.deepEqual(models.data.map((model) => model.id).sort(), ["custom-haiku-alias", "custom-opus-alias", "custom-sonnet-alias"]);
 
   const crossOrigin = await fetch(`${baseUrl}/v1/messages/count_tokens`, {
     method: "POST",
@@ -202,7 +206,7 @@ test("enforces local browser isolation, body limits, and upstream timeouts", asy
   await waitForOutput(proxy, /INFO request_complete /);
   assert.match(proxy.getOutput(), /INFO upstream_response \{"request_id":"[^"]+","status":200,"path":"\/v1\/messages","ttfb_ms":\d+\}/);
   assert.match(proxy.getOutput(), /INFO request_complete \{"request_id":"[^"]+","status":200,"path":"\/v1\/messages","ttfb_ms":\d+,"duration_ms":\d+\}/);
-  assert.match(proxy.getOutput(), /INFO startup \{"version":"1\.6\.10","pid":\d+,"node":"v[^\"]+","host":"127\.0\.0\.1","port":\d+\}/);
+  assert.match(proxy.getOutput(), /INFO startup \{"version":"1\.6\.11","pid":\d+,"node":"v[^\"]+","host":"127\.0\.0\.1","port":\d+\}/);
 
   const tooLarge = await fetch(`${baseUrl}/v1/messages/count_tokens`, {
     method: "POST",
@@ -224,8 +228,8 @@ test("enforces local browser isolation, body limits, and upstream timeouts", asy
   assert.match((await timedOut.json()).error.message, /timed out/i);
 
   await stopProxy(proxy, "test_complete");
-  assert.match(proxy.getOutput(), /INFO shutdown_requested \{"version":"1\.6\.10","pid":\d+,"reason":"test_complete","uptime_ms":\d+\}/);
-  assert.match(proxy.getOutput(), /INFO shutdown_complete \{"version":"1\.6\.10","pid":\d+,"reason":"test_complete","uptime_ms":\d+,"exit_code":0\}/);
+  assert.match(proxy.getOutput(), /INFO shutdown_requested \{"version":"1\.6\.11","pid":\d+,"reason":"test_complete","uptime_ms":\d+\}/);
+  assert.match(proxy.getOutput(), /INFO shutdown_complete \{"version":"1\.6\.11","pid":\d+,"reason":"test_complete","uptime_ms":\d+,"exit_code":0\}/);
 });
 
 test("requires Gateway authentication for localhost health and model endpoints", async (t) => {

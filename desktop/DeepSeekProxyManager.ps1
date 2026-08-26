@@ -66,6 +66,8 @@ $sonnetAliasBox = $viewRoot.FindName("SonnetAliasBox")
 $sonnetTargetBox = $viewRoot.FindName("SonnetTargetBox")
 $opusAliasBox = $viewRoot.FindName("OpusAliasBox")
 $opusTargetBox = $viewRoot.FindName("OpusTargetBox")
+$haikuAliasBox = $viewRoot.FindName("HaikuAliasBox")
+$haikuTargetBox = $viewRoot.FindName("HaikuTargetBox")
 $headerIcon = $viewRoot.FindName("HeaderIcon")
 $statusText = $viewRoot.FindName("StatusText")
 $statusDetail = $viewRoot.FindName("StatusDetail")
@@ -151,6 +153,8 @@ function Get-ModelMapping {
   $sonnetTarget = $sonnetTargetBox.Text.Trim()
   $opusAlias = $opusAliasBox.Text.Trim()
   $opusTarget = $opusTargetBox.Text.Trim()
+  $haikuAlias = $haikuAliasBox.Text.Trim()
+  $haikuTarget = $haikuTargetBox.Text.Trim()
   if ($sonnetAlias -notmatch $pattern) {
     [Windows.MessageBox]::Show("Sonnet 的 Claude 模型 ID 无效。只能使用字母、数字、点、下划线、冒号、斜杠和连字符。", "模型映射无效", "OK", "Warning") | Out-Null
     $sonnetAliasBox.Focus() | Out-Null
@@ -171,12 +175,27 @@ function Get-ModelMapping {
     $opusTargetBox.Focus() | Out-Null
     return $null
   }
+  if ($haikuAlias -notmatch $pattern) {
+    [Windows.MessageBox]::Show("Haiku 的 Claude 模型 ID 无效。只能使用字母、数字、点、下划线、冒号、斜杠和连字符。", "模型映射无效", "OK", "Warning") | Out-Null
+    $haikuAliasBox.Focus() | Out-Null
+    return $null
+  }
+  if ($haikuTarget -notmatch $pattern) {
+    [Windows.MessageBox]::Show("Haiku 的 DeepSeek 模型 ID 无效。只能使用字母、数字、点、下划线、冒号、斜杠和连字符。", "模型映射无效", "OK", "Warning") | Out-Null
+    $haikuTargetBox.Focus() | Out-Null
+    return $null
+  }
   if ($sonnetAlias -ieq $opusAlias) {
-    [Windows.MessageBox]::Show("两条映射的 Claude 模型 ID 不能相同。", "模型映射无效", "OK", "Warning") | Out-Null
+    [Windows.MessageBox]::Show("三条映射的 Claude 模型 ID 不能重复。", "模型映射无效", "OK", "Warning") | Out-Null
     $opusAliasBox.Focus() | Out-Null
     return $null
   }
-  return @{ SonnetAlias = $sonnetAlias; SonnetTarget = $sonnetTarget; OpusAlias = $opusAlias; OpusTarget = $opusTarget }
+  if ($haikuAlias -ieq $sonnetAlias -or $haikuAlias -ieq $opusAlias) {
+    [Windows.MessageBox]::Show("三条映射的 Claude 模型 ID 不能重复。", "模型映射无效", "OK", "Warning") | Out-Null
+    $haikuAliasBox.Focus() | Out-Null
+    return $null
+  }
+  return @{ SonnetAlias = $sonnetAlias; SonnetTarget = $sonnetTarget; OpusAlias = $opusAlias; OpusTarget = $opusTarget; HaikuAlias = $haikuAlias; HaikuTarget = $haikuTarget }
 }
 
 function Test-ProxyHealth {
@@ -285,6 +304,8 @@ function Save-Settings([bool]$IncludeKey) {
   New-ItemProperty -Path $script:settingsPath -Name SonnetTargetModel -Value $models.SonnetTarget -PropertyType String -Force | Out-Null
   New-ItemProperty -Path $script:settingsPath -Name OpusAliasModel -Value $models.OpusAlias -PropertyType String -Force | Out-Null
   New-ItemProperty -Path $script:settingsPath -Name OpusTargetModel -Value $models.OpusTarget -PropertyType String -Force | Out-Null
+  New-ItemProperty -Path $script:settingsPath -Name HaikuAliasModel -Value $models.HaikuAlias -PropertyType String -Force | Out-Null
+  New-ItemProperty -Path $script:settingsPath -Name HaikuTargetModel -Value $models.HaikuTarget -PropertyType String -Force | Out-Null
   New-ItemProperty -Path $script:settingsPath -Name MinimizeToTray -Value ([int]($minimizeCheck.IsChecked -eq $true)) -PropertyType DWord -Force | Out-Null
   New-ItemProperty -Path $script:settingsPath -Name AutoStart -Value ([int]($autoStartCheck.IsChecked -eq $true)) -PropertyType DWord -Force | Out-Null
   New-ItemProperty -Path $script:settingsPath -Name ProxyApiKey -Value (Protect-Secret $script:gatewayApiKey) -PropertyType String -Force | Out-Null
@@ -301,6 +322,8 @@ function Load-Settings {
   $sonnetTargetBox.Text = if ($settings.SonnetTargetModel) { [string]$settings.SonnetTargetModel } else { "deepseek-v4-flash" }
   $opusAliasBox.Text = if ($settings.OpusAliasModel) { [string]$settings.OpusAliasModel } else { "claude-opus-4-5" }
   $opusTargetBox.Text = if ($settings.OpusTargetModel) { [string]$settings.OpusTargetModel } else { "deepseek-v4-pro" }
+  $haikuAliasBox.Text = if ($settings.HaikuAliasModel) { [string]$settings.HaikuAliasModel } else { "claude-haiku-4-5" }
+  $haikuTargetBox.Text = if ($settings.HaikuTargetModel) { [string]$settings.HaikuTargetModel } else { "deepseek-v4-flash" }
   $minimizeCheck.IsChecked = if ($null -ne $settings.MinimizeToTray) { [bool]$settings.MinimizeToTray } else { $true }
   $autoStartCheck.IsChecked = [bool]$settings.AutoStart
   if ($settings.ApiKey) {
@@ -432,6 +455,8 @@ function Update-Buttons([bool]$Running, [bool]$Owned) {
     $sonnetTargetBox.IsEnabled = -not $Running
     $opusAliasBox.IsEnabled = -not $Running
     $opusTargetBox.IsEnabled = -not $Running
+    $haikuAliasBox.IsEnabled = -not $Running
+    $haikuTargetBox.IsEnabled = -not $Running
     if ($script:trayStartItem) { $script:trayStartItem.Enabled = -not $Running }
     if ($script:trayStopItem) { $script:trayStopItem.Enabled = $Running -and $Owned }
   }
@@ -476,6 +501,7 @@ function Start-Proxy {
   $modelMap = @{}
   $modelMap[$models.OpusAlias] = $models.OpusTarget
   $modelMap[$models.SonnetAlias] = $models.SonnetTarget
+  $modelMap[$models.HaikuAlias] = $models.HaikuTarget
   $info.EnvironmentVariables["MODEL_MAP_JSON"] = ($modelMap | ConvertTo-Json -Compress)
   $info.EnvironmentVariables["PORT"] = [string]$port
   $info.EnvironmentVariables["HOST"] = "127.0.0.1"

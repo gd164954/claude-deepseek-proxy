@@ -10,7 +10,7 @@ $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Drawing
 
 if (-not ("DeepSeekProxy.IconPaletteRenderer" -as [type])) {
-  Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @"
+  Add-Type -ReferencedAssemblies @("System.Drawing", "System.Core") -TypeDefinition @"
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -37,6 +37,53 @@ namespace DeepSeekProxy
             Color.FromArgb(0xCB, 0xDC, 0xFE),
             Color.FromArgb(0xAF, 0xC6, 0xFA)
         };
+
+        public static Bitmap FillCanvas(Bitmap input)
+        {
+            int minX = input.Width;
+            int minY = input.Height;
+            int maxX = -1;
+            int maxY = -1;
+            for (int y = 0; y < input.Height; y++)
+            {
+                for (int x = 0; x < input.Width; x++)
+                {
+                    if (input.GetPixel(x, y).A == 0) continue;
+                    minX = Math.Min(minX, x);
+                    minY = Math.Min(minY, y);
+                    maxX = Math.Max(maxX, x);
+                    maxY = Math.Max(maxY, y);
+                }
+            }
+
+            if (maxX < minX || maxY < minY)
+            {
+                return new Bitmap(input);
+            }
+
+            Bitmap output = new Bitmap(input.Width, input.Height, PixelFormat.Format32bppArgb);
+            using (Graphics graphics = Graphics.FromImage(output))
+            using (ImageAttributes attributes = new ImageAttributes())
+            {
+                graphics.Clear(Color.Transparent);
+                graphics.CompositingMode = CompositingMode.SourceCopy;
+                graphics.CompositingQuality = CompositingQuality.HighQuality;
+                graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                graphics.SmoothingMode = SmoothingMode.HighQuality;
+                attributes.SetWrapMode(WrapMode.TileFlipXY);
+                graphics.DrawImage(
+                    input,
+                    new Rectangle(0, 0, input.Width, input.Height),
+                    minX,
+                    minY,
+                    maxX - minX + 1,
+                    maxY - minY + 1,
+                    GraphicsUnit.Pixel,
+                    attributes);
+            }
+            return output;
+        }
 
         public static Bitmap Render(Bitmap input)
         {
@@ -188,15 +235,18 @@ namespace DeepSeekProxy
 
 $sizes = @(16, 20, 24, 32, 40, 48, 64, 128, 256)
 $inputSource = [Drawing.Bitmap]::new((Resolve-Path -LiteralPath $InputPng).Path)
+$normalizedSource = [DeepSeekProxy.IconPaletteRenderer]::FillCanvas($inputSource)
+$inputSource.Dispose()
+$inputSource = $null
 $source = $null
 $temporaryPng = "$OutputPng.recoloring.png"
 if ($PreserveInputColors) {
-  $source = $inputSource
-  $inputSource = $null
+  $source = $normalizedSource
+  $normalizedSource = $null
 } else {
-  $source = [DeepSeekProxy.IconPaletteRenderer]::Render($inputSource)
-  $inputSource.Dispose()
-  $inputSource = $null
+  $source = [DeepSeekProxy.IconPaletteRenderer]::Render($normalizedSource)
+  $normalizedSource.Dispose()
+  $normalizedSource = $null
 }
 $source.Save($temporaryPng, [Drawing.Imaging.ImageFormat]::Png)
 [IO.File]::Copy($temporaryPng, $OutputPng, $true)
@@ -268,9 +318,9 @@ try {
     $previewGraphics.PixelOffsetMode = [Drawing.Drawing2D.PixelOffsetMode]::Half
     for ($index = 0; $index -lt $previewSizes.Count; $index++) {
       $x = 18 + ($index * 93)
-      $previewGraphics.DrawImage($rendered[$index], [Drawing.Rectangle]::new($x + 30, 16, $previewSizes[$index], $previewSizes[$index]))
-      $previewGraphics.DrawImage($rendered[$index], [Drawing.Rectangle]::new($x, 74, 78, 78))
-      $previewGraphics.DrawString("$($previewSizes[$index]) px", $labelFont, $labelBrush, $x + 20, 160)
+      $previewGraphics.DrawImage($rendered[$index], [Drawing.Rectangle]::new($x + 30, 8, $previewSizes[$index], $previewSizes[$index]))
+      $previewGraphics.DrawImage($rendered[$index], [Drawing.Rectangle]::new($x, 80, 78, 78))
+      $previewGraphics.DrawString("$($previewSizes[$index]) px", $labelFont, $labelBrush, $x + 20, 164)
     }
     $preview.Save($PreviewPng, [Drawing.Imaging.ImageFormat]::Png)
   } finally {
@@ -282,6 +332,7 @@ try {
 } finally {
   foreach ($bitmap in $rendered) { $bitmap.Dispose() }
   if ($source) { $source.Dispose() }
+  if ($normalizedSource) { $normalizedSource.Dispose() }
   if ($inputSource) { $inputSource.Dispose() }
   if ([IO.File]::Exists($temporaryPng)) { [IO.File]::Delete($temporaryPng) }
 }

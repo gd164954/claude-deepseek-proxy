@@ -25,8 +25,8 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("Native Windows manager for the local Claude-to-DeepSeek proxy")]
 [assembly: AssemblyCompany("Local")]
 [assembly: AssemblyProduct("DeepSeek Claude Proxy Manager")]
-[assembly: AssemblyVersion("1.6.10.0")]
-[assembly: AssemblyFileVersion("1.6.10.0")]
+[assembly: AssemblyVersion("1.6.11.0")]
+[assembly: AssemblyFileVersion("1.6.11.0")]
 
 namespace ClaudeDeepSeekProxyManager
 {
@@ -82,6 +82,8 @@ namespace ClaudeDeepSeekProxyManager
         private TextBox _sonnetTargetBox;
         private TextBox _opusAliasBox;
         private TextBox _opusTargetBox;
+        private TextBox _haikuAliasBox;
+        private TextBox _haikuTargetBox;
         private TextBox _logBox;
         private Image _headerIcon;
         private TextBlock _statusText;
@@ -171,6 +173,8 @@ namespace ClaudeDeepSeekProxyManager
             _sonnetTargetBox = _viewRoot.FindName("SonnetTargetBox") as TextBox;
             _opusAliasBox = _viewRoot.FindName("OpusAliasBox") as TextBox;
             _opusTargetBox = _viewRoot.FindName("OpusTargetBox") as TextBox;
+            _haikuAliasBox = _viewRoot.FindName("HaikuAliasBox") as TextBox;
+            _haikuTargetBox = _viewRoot.FindName("HaikuTargetBox") as TextBox;
             _headerIcon = _viewRoot.FindName("HeaderIcon") as Image;
             _statusText = _viewRoot.FindName("StatusText") as TextBlock;
             _statusDetail = _viewRoot.FindName("StatusDetail") as TextBlock;
@@ -372,7 +376,9 @@ namespace ClaudeDeepSeekProxyManager
             string opusTarget;
             string sonnetAlias;
             string sonnetTarget;
-            if (!TryGetModelMapping(out opusAlias, out opusTarget, out sonnetAlias, out sonnetTarget)) return;
+            string haikuAlias;
+            string haikuTarget;
+            if (!TryGetModelMapping(out opusAlias, out opusTarget, out sonnetAlias, out sonnetTarget, out haikuAlias, out haikuTarget)) return;
 
             var apiKey = _apiKeyBox.Password;
             if (string.IsNullOrWhiteSpace(apiKey))
@@ -423,7 +429,7 @@ namespace ClaudeDeepSeekProxyManager
                 startInfo.RedirectStandardInput = true;
                 startInfo.EnvironmentVariables["DEEPSEEK_API_KEY"] = apiKey;
                 startInfo.EnvironmentVariables["DEEPSEEK_BASE_URL"] = "https://api.deepseek.com/anthropic";
-                startInfo.EnvironmentVariables["MODEL_MAP_JSON"] = BuildModelMapJson(opusAlias, opusTarget, sonnetAlias, sonnetTarget);
+                startInfo.EnvironmentVariables["MODEL_MAP_JSON"] = BuildModelMapJson(opusAlias, opusTarget, sonnetAlias, sonnetTarget, haikuAlias, haikuTarget);
                 startInfo.EnvironmentVariables["PORT"] = port.ToString();
                 startInfo.EnvironmentVariables["HOST"] = "127.0.0.1";
                 startInfo.EnvironmentVariables["LOG_FILE"] = _logPath;
@@ -823,6 +829,8 @@ namespace ClaudeDeepSeekProxyManager
                 _sonnetTargetBox.Text = Convert.ToString(key.GetValue("SonnetTargetModel", "deepseek-v4-flash"));
                 _opusAliasBox.Text = Convert.ToString(key.GetValue("OpusAliasModel", "claude-opus-4-5"));
                 _opusTargetBox.Text = Convert.ToString(key.GetValue("OpusTargetModel", "deepseek-v4-pro"));
+                _haikuAliasBox.Text = Convert.ToString(key.GetValue("HaikuAliasModel", "claude-haiku-4-5"));
+                _haikuTargetBox.Text = Convert.ToString(key.GetValue("HaikuTargetModel", "deepseek-v4-flash"));
                 _minimizeToTrayCheck.IsChecked = Convert.ToInt32(key.GetValue("MinimizeToTray", 1)) != 0;
                 _autoStartCheck.IsChecked = Convert.ToInt32(key.GetValue("AutoStart", 0)) != 0;
                 var protectedValue = Convert.ToString(key.GetValue("ApiKey", ""));
@@ -856,7 +864,9 @@ namespace ClaudeDeepSeekProxyManager
             string opusTarget;
             string sonnetAlias;
             string sonnetTarget;
-            if (!TryGetModelMapping(out opusAlias, out opusTarget, out sonnetAlias, out sonnetTarget)) return false;
+            string haikuAlias;
+            string haikuTarget;
+            if (!TryGetModelMapping(out opusAlias, out opusTarget, out sonnetAlias, out sonnetTarget, out haikuAlias, out haikuTarget)) return false;
 
             using (var key = Registry.CurrentUser.CreateSubKey(AppRegistryPath))
             {
@@ -865,6 +875,8 @@ namespace ClaudeDeepSeekProxyManager
                 key.SetValue("SonnetTargetModel", sonnetTarget, RegistryValueKind.String);
                 key.SetValue("OpusAliasModel", opusAlias, RegistryValueKind.String);
                 key.SetValue("OpusTargetModel", opusTarget, RegistryValueKind.String);
+                key.SetValue("HaikuAliasModel", haikuAlias, RegistryValueKind.String);
+                key.SetValue("HaikuTargetModel", haikuTarget, RegistryValueKind.String);
                 key.SetValue("MinimizeToTray", _minimizeToTrayCheck.IsChecked == true ? 1 : 0, RegistryValueKind.DWord);
                 key.SetValue("AutoStart", _autoStartCheck.IsChecked == true ? 1 : 0, RegistryValueKind.DWord);
                 key.SetValue("ProxyApiKey", ProtectSecret(_gatewayApiKey), RegistryValueKind.String);
@@ -934,12 +946,20 @@ namespace ClaudeDeepSeekProxyManager
             return int.TryParse(_portBox.Text, out port) && port >= 1 && port <= 65535;
         }
 
-        private bool TryGetModelMapping(out string opusAlias, out string opusTarget, out string sonnetAlias, out string sonnetTarget)
+        private bool TryGetModelMapping(
+            out string opusAlias,
+            out string opusTarget,
+            out string sonnetAlias,
+            out string sonnetTarget,
+            out string haikuAlias,
+            out string haikuTarget)
         {
             opusAlias = (_opusAliasBox.Text ?? "").Trim();
             opusTarget = (_opusTargetBox.Text ?? "").Trim();
             sonnetAlias = (_sonnetAliasBox.Text ?? "").Trim();
             sonnetTarget = (_sonnetTargetBox.Text ?? "").Trim();
+            haikuAlias = (_haikuAliasBox.Text ?? "").Trim();
+            haikuTarget = (_haikuTargetBox.Text ?? "").Trim();
             const string pattern = "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$";
 
             if (!Regex.IsMatch(sonnetAlias, pattern))
@@ -962,11 +982,29 @@ namespace ClaudeDeepSeekProxyManager
                 ShowInvalidModelId("Opus 的 DeepSeek 模型 ID", _opusTargetBox);
                 return false;
             }
+            if (!Regex.IsMatch(haikuAlias, pattern))
+            {
+                ShowInvalidModelId("Haiku 的 Claude 模型 ID", _haikuAliasBox);
+                return false;
+            }
+            if (!Regex.IsMatch(haikuTarget, pattern))
+            {
+                ShowInvalidModelId("Haiku 的 DeepSeek 模型 ID", _haikuTargetBox);
+                return false;
+            }
             if (string.Equals(sonnetAlias, opusAlias, StringComparison.OrdinalIgnoreCase))
             {
-                MessageBox.Show("两条映射的 Claude 模型 ID 不能相同。", "模型映射无效",
+                MessageBox.Show("三条映射的 Claude 模型 ID 不能重复。", "模型映射无效",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 _opusAliasBox.Focus();
+                return false;
+            }
+            if (string.Equals(haikuAlias, sonnetAlias, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(haikuAlias, opusAlias, StringComparison.OrdinalIgnoreCase))
+            {
+                MessageBox.Show("三条映射的 Claude 模型 ID 不能重复。", "模型映射无效",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                _haikuAliasBox.Focus();
                 return false;
             }
             return true;
@@ -979,9 +1017,17 @@ namespace ClaudeDeepSeekProxyManager
             box.Focus();
         }
 
-        private static string BuildModelMapJson(string opusAlias, string opusTarget, string sonnetAlias, string sonnetTarget)
+        private static string BuildModelMapJson(
+            string opusAlias,
+            string opusTarget,
+            string sonnetAlias,
+            string sonnetTarget,
+            string haikuAlias,
+            string haikuTarget)
         {
-            return "{\"" + opusAlias + "\":\"" + opusTarget + "\",\"" + sonnetAlias + "\":\"" + sonnetTarget + "\"}";
+            return "{\"" + opusAlias + "\":\"" + opusTarget +
+                "\",\"" + sonnetAlias + "\":\"" + sonnetTarget +
+                "\",\"" + haikuAlias + "\":\"" + haikuTarget + "\"}";
         }
 
         private static string FindProxyScript(string appDirectory)
@@ -1274,6 +1320,8 @@ namespace ClaudeDeepSeekProxyManager
                 _sonnetTargetBox.IsEnabled = !running;
                 _opusAliasBox.IsEnabled = !running;
                 _opusTargetBox.IsEnabled = !running;
+                _haikuAliasBox.IsEnabled = !running;
+                _haikuTargetBox.IsEnabled = !running;
             }
             var nodeText = string.IsNullOrEmpty(_nodePath)
                 ? "Node.js 将在启动时自动检测"
@@ -1441,11 +1489,11 @@ namespace ClaudeDeepSeekProxyManager
               <TextBox x:Name=""PortBox"" Text=""3210"" Style=""{StaticResource TechnicalInput}"" AutomationProperties.Name=""本地监听端口""/>
               <Grid Margin=""0,12,0,5""><Grid.ColumnDefinitions><ColumnDefinition Width=""*""/><ColumnDefinition Width=""Auto""/></Grid.ColumnDefinitions>
                 <TextBlock Text=""模型映射"" Foreground=""{StaticResource Ink}"" Style=""{StaticResource SubsectionTitleText}""/>
-                <TextBlock Grid.Column=""1"" Text=""两端均可编辑"" Foreground=""#5E7DD8"" Style=""{StaticResource CaptionText}""/>
+                <TextBlock Grid.Column=""1"" Text=""三组均可编辑"" Foreground=""#5E7DD8"" Style=""{StaticResource CaptionText}""/>
               </Grid>
               <Border Background=""#F8FAFD"" CornerRadius=""9"" Padding=""10"" BorderBrush=""#E1E7F0"" BorderThickness=""1"">
                 <Grid>
-                  <Grid.RowDefinitions><RowDefinition Height=""Auto""/><RowDefinition Height=""6""/><RowDefinition Height=""Auto""/><RowDefinition Height=""7""/><RowDefinition Height=""Auto""/></Grid.RowDefinitions>
+                  <Grid.RowDefinitions><RowDefinition Height=""Auto""/><RowDefinition Height=""6""/><RowDefinition Height=""Auto""/><RowDefinition Height=""7""/><RowDefinition Height=""Auto""/><RowDefinition Height=""7""/><RowDefinition Height=""Auto""/></Grid.RowDefinitions>
                   <Grid.ColumnDefinitions><ColumnDefinition Width=""*""/><ColumnDefinition Width=""32""/><ColumnDefinition Width=""*""/></Grid.ColumnDefinitions>
                   <TextBlock Text=""Claude 模型 ID"" Foreground=""#6F7C90"" Style=""{StaticResource CaptionText}""/>
                   <TextBlock Grid.Column=""2"" Text=""DeepSeek 模型 ID"" Foreground=""#6F7C90"" Style=""{StaticResource CaptionText}""/>
@@ -1455,6 +1503,9 @@ namespace ClaudeDeepSeekProxyManager
                   <TextBox x:Name=""OpusAliasBox"" Grid.Row=""4"" Text=""claude-opus-4-5"" Style=""{StaticResource TechnicalInput}"" Padding=""8,0"" AutomationProperties.Name=""Opus Claude 模型 ID""/>
                   <TextBlock Grid.Row=""4"" Grid.Column=""1"" Text=""→"" Foreground=""#6B86E8"" FontSize=""16"" HorizontalAlignment=""Center"" VerticalAlignment=""Center""/>
                   <TextBox x:Name=""OpusTargetBox"" Grid.Row=""4"" Grid.Column=""2"" Text=""deepseek-v4-pro"" Style=""{StaticResource TechnicalInput}"" Padding=""8,0"" AutomationProperties.Name=""Opus DeepSeek 模型 ID""/>
+                  <TextBox x:Name=""HaikuAliasBox"" Grid.Row=""6"" Text=""claude-haiku-4-5"" Style=""{StaticResource TechnicalInput}"" Padding=""8,0"" AutomationProperties.Name=""Haiku Claude 模型 ID""/>
+                  <TextBlock Grid.Row=""6"" Grid.Column=""1"" Text=""→"" Foreground=""#6B86E8"" FontSize=""16"" HorizontalAlignment=""Center"" VerticalAlignment=""Center""/>
+                  <TextBox x:Name=""HaikuTargetBox"" Grid.Row=""6"" Grid.Column=""2"" Text=""deepseek-v4-flash"" Style=""{StaticResource TechnicalInput}"" Padding=""8,0"" AutomationProperties.Name=""Haiku DeepSeek 模型 ID""/>
                 </Grid>
               </Border>
             </StackPanel>

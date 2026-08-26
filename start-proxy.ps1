@@ -8,6 +8,8 @@ param(
   [string]$OpusTargetModel = "deepseek-v4-pro",
   [string]$SonnetAliasModel = "claude-sonnet-4-5",
   [string]$SonnetTargetModel = "deepseek-v4-flash",
+  [string]$HaikuAliasModel = "claude-haiku-4-5",
+  [string]$HaikuTargetModel = "deepseek-v4-flash",
   [string]$HostName = "127.0.0.1",
   [string]$NodePath = "",
   [string]$LogFile = ".\proxy.log",
@@ -64,8 +66,16 @@ if ($SonnetAliasModel -notmatch $modelIdPattern) {
 if ($SonnetTargetModel -notmatch $modelIdPattern) {
   throw "SonnetTargetModel is not a valid model ID: $SonnetTargetModel"
 }
-if ($OpusAliasModel -ieq $SonnetAliasModel) {
-  throw "OpusAliasModel and SonnetAliasModel must be different."
+if ($HaikuAliasModel -notmatch $modelIdPattern) {
+  throw "HaikuAliasModel is not a valid model ID: $HaikuAliasModel"
+}
+if ($HaikuTargetModel -notmatch $modelIdPattern) {
+  throw "HaikuTargetModel is not a valid model ID: $HaikuTargetModel"
+}
+if ($OpusAliasModel -ieq $SonnetAliasModel -or
+    $HaikuAliasModel -ieq $SonnetAliasModel -or
+    $HaikuAliasModel -ieq $OpusAliasModel) {
+  throw "OpusAliasModel, SonnetAliasModel, and HaikuAliasModel must be different."
 }
 
 $proxyScriptPath = Join-Path $PSScriptRoot "claude-deepseek-proxy.mjs"
@@ -84,6 +94,7 @@ $env:DEEPSEEK_BASE_URL = $BaseUrl
 $modelMap = @{}
 $modelMap[$OpusAliasModel] = $OpusTargetModel
 $modelMap[$SonnetAliasModel] = $SonnetTargetModel
+$modelMap[$HaikuAliasModel] = $HaikuTargetModel
 $env:MODEL_MAP_JSON = $modelMap | ConvertTo-Json -Compress
 $env:PORT = [string]$Port
 $env:HOST = $HostName
@@ -141,5 +152,5 @@ Write-Host "Using Node: $nodeExe"
 Write-Host "Node version: v$nodeVersion"
 Write-Host "Proxy script: $proxyScriptPath"
 Write-Host "Log file:     $resolvedLogFile"
-Write-Host "Models:       $SonnetAliasModel -> $SonnetTargetModel; $OpusAliasModel -> $OpusTargetModel"
+Write-Host "Models:       $SonnetAliasModel -> $SonnetTargetModel; $OpusAliasModel -> $OpusTargetModel; $HaikuAliasModel -> $HaikuTargetModel"
 & $nodeExe $proxyScriptPath

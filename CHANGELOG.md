@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.6.11 - 2026-08-26
+
+- Expand the editable model routing panel from two mappings to three with a new Haiku route.
+- Persist and validate the Haiku Claude-facing and DeepSeek-facing model IDs in both GUI launchers and the command-line launcher.
+- Add `claude-haiku-4-5 -> deepseek-v4-flash` to the default proxy model list.
+- Remove the transparent outer padding from the existing eight-segment icon while preserving its 256 x 256 canvas, subject, and approved color direction.
+
 ## v1.6.10 - 2026-08-25
 
 - Record proxy version, PID, Node.js version, configured listener, shutdown reason, exit code, and process uptime in runtime logs.

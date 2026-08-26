@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const DEFAULT_MODEL_MAP = {
   "claude-opus-4-5": "deepseek-v4-pro",
   "claude-sonnet-4-5": "deepseek-v4-flash",
+  "claude-haiku-4-5": "deepseek-v4-flash",
 };
 
 export function loadModelMap(rawValue = process.env.MODEL_MAP_JSON) {
@@ -63,7 +64,7 @@ const UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS || 120_000);
 const TRANSFORM_RESPONSES = process.env.TRANSFORM_RESPONSES === "true";
 const FILTER_THINKING_BLOCKS = process.env.FILTER_THINKING_BLOCKS === "true";
 const FORCE_UPSTREAM_NON_STREAM = process.env.FORCE_UPSTREAM_NON_STREAM === "true";
-const APP_VERSION = "1.6.10";
+const APP_VERSION = "1.6.11";
 const PROCESS_STARTED_AT = Date.now();
 
 if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
