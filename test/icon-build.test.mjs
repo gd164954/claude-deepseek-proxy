@@ -6,6 +6,7 @@ const manifestPath = new URL("../assets/icon-manifest.json", import.meta.url);
 const iconPath = new URL("../assets/DeepSeekProxyManager.ico", import.meta.url);
 const sourcePath = new URL("../assets/DeepSeekProxyManager-icon.png", import.meta.url);
 const maskPath = new URL("../assets/DeepSeekProxyManager-icon-mask.png", import.meta.url);
+const generatorPath = new URL("../assets/build-icon.ps1", import.meta.url);
 
 function luminance(hex) {
   const value = hex.replace("#", "");
@@ -16,16 +17,18 @@ function luminance(hex) {
 }
 
 test("ships the approved lower-left-light to upper-right-deep icon assets", async () => {
-  const [manifestText, icon, source, mask] = await Promise.all([
+  const [manifestText, icon, source, mask, generator] = await Promise.all([
     readFile(manifestPath, "utf8"),
     readFile(iconPath),
     readFile(sourcePath),
     readFile(maskPath),
+    readFile(generatorPath, "utf8"),
   ]);
   const manifest = JSON.parse(manifestText);
 
-  assert.equal(manifest.version, "1.6.5");
+  assert.equal(manifest.version, "1.6.11");
   assert.equal(manifest.direction, "lower-left light to upper-right deep");
+  assert.equal(manifest.framing, "edge-to-edge on all four sides");
   assert.equal(manifest.segmentPaletteClockwiseFromTop.length, 8);
   assert.ok(
     luminance(manifest.segmentPaletteClockwiseFromTop[5]) >
@@ -39,4 +42,6 @@ test("ships the approved lower-left-light to upper-right-deep icon assets", asyn
   assert.equal(icon.readUInt16LE(0), 0);
   assert.equal(icon.readUInt16LE(2), 1);
   assert.equal(icon.readUInt16LE(4), 9);
+  assert.match(generator, /public static Bitmap FillCanvas\(Bitmap input\)/);
+  assert.match(generator, /new Rectangle\(0, 0, input\.Width, input\.Height\)/);
 });

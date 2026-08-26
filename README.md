@@ -6,10 +6,11 @@ Local Anthropic-compatible proxy for Claude Desktop 3P mode. It keeps Claude-fac
 | --- | --- |
 | `claude-opus-4-5` | `deepseek-v4-pro` (default) |
 | `claude-sonnet-4-5` | `deepseek-v4-flash` (default) |
+| `claude-haiku-4-5` | `deepseek-v4-flash` (default) |
 
 ## Windows GUI
 
-The graphical manager provides fully editable model mappings on both sides, encrypted DeepSeek and Gateway key storage, one-click start/stop/restart, health checks, a clearly displayed local endpoint with one-click copy, a separate log window, system-tray operation, and optional Windows login startup. Claude-facing and DeepSeek-facing model IDs are saved for the current Windows account and applied on the next proxy start.
+The graphical manager provides three fully editable model mappings on both sides, encrypted DeepSeek and Gateway key storage, one-click start/stop/restart, health checks, a clearly displayed local endpoint with one-click copy, a separate log window, system-tray operation, and optional Windows login startup. Claude-facing and DeepSeek-facing model IDs are saved for the current Windows account and applied on the next proxy start.
 
 ![DeepSeek Proxy Manager](docs/DeepSeekProxyManager.png)
 
@@ -53,7 +54,9 @@ For command-line use, override either target model when needed:
   -SonnetAliasModel "claude-sonnet-custom" `
   -SonnetTargetModel "deepseek-chat" `
   -OpusAliasModel "claude-opus-custom" `
-  -OpusTargetModel "deepseek-reasoner"
+  -OpusTargetModel "deepseek-reasoner" `
+  -HaikuAliasModel "claude-haiku-custom" `
+  -HaikuTargetModel "deepseek-chat"
 ```
 
 The script securely prompts for both the DeepSeek API key and the separate Gateway API key when their environment variables are not already set. Avoid putting real keys directly in a command because PowerShell command history stores them.
@@ -86,7 +89,7 @@ The profile should point to:
 ```text
 Gateway base URL: http://127.0.0.1:3210
 Gateway auth scheme: bearer
-Models: claude-opus-4-5, claude-sonnet-4-5
+Models: claude-opus-4-5, claude-sonnet-4-5, claude-haiku-4-5
 ```
 
 The profile stores its local gateway key in Claude's configuration. Use a dedicated random value, never the DeepSeek API key.
@@ -128,12 +131,12 @@ Invoke-RestMethod `
 Successful runtime logs look like:
 
 ```text
-startup {"version":"1.6.10","pid":1234,"node":"v22.x.x","host":"127.0.0.1","port":3210}
+startup {"version":"1.6.11","pid":1234,"node":"v22.x.x","host":"127.0.0.1","port":3210}
 model_rewrite {"request_id":"...","rewrite":"claude-sonnet-4-5 -> deepseek-v4-flash"}
 upstream_response {"request_id":"...","status":200,"path":"/v1/messages","ttfb_ms":184}
 request_complete {"request_id":"...","status":200,"path":"/v1/messages","ttfb_ms":184,"duration_ms":1260}
-shutdown_requested {"version":"1.6.10","pid":1234,"reason":"manager_exit","uptime_ms":3600000}
-shutdown_complete {"version":"1.6.10","pid":1234,"reason":"manager_exit","uptime_ms":3600012,"exit_code":0}
+shutdown_requested {"version":"1.6.11","pid":1234,"reason":"manager_exit","uptime_ms":3600000}
+shutdown_complete {"version":"1.6.11","pid":1234,"reason":"manager_exit","uptime_ms":3600012,"exit_code":0}
 ```
 
 `ttfb_ms` measures the time until upstream response headers arrive; `duration_ms` on `request_complete` measures the full request, including streamed output. Client cancellations are recorded separately as `client_disconnected` instead of being reported as proxy failures. Startup and shutdown entries include the proxy version, PID, uptime, and the manager-provided stop or restart reason.

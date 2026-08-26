@@ -7,6 +7,7 @@ const powershellPath = new URL("../desktop/DeepSeekProxyManager.ps1", import.met
 const trayThemePath = new URL("../desktop/TrayMenuTheme.cs", import.meta.url);
 const buildPath = new URL("../build-gui.ps1", import.meta.url);
 const nodeLicensePath = new URL("../third_party/NODE-LICENSE.txt", import.meta.url);
+const startProxyPath = new URL("../start-proxy.ps1", import.meta.url);
 
 test("persists a stable encrypted Gateway key in both GUI launchers", async () => {
   const [csharp, powershell] = await Promise.all([
@@ -76,7 +77,7 @@ test("reduces long-running GUI rendering and polling work", async () => {
     readFile(powershellPath, "utf8"),
   ]);
 
-  assert.match(csharp, /AssemblyVersion\("1\.6\.10\.0"\)/);
+  assert.match(csharp, /AssemblyVersion\("1\.6\.11\.0"\)/);
   assert.match(csharp, /RenderOptions\.ProcessRenderMode = RenderMode\.SoftwareOnly/);
   assert.match(csharp, /foreground \? 10 : 45/);
   assert.match(csharp, /_lastStatusKind == kind/);
@@ -107,6 +108,27 @@ test("closes health probes and records deliberate proxy shutdowns", async () => 
   assert.match(powershell, /command = "shutdown"; reason = \$Reason/);
   assert.match(powershell, /Stop-Proxy -Reason "manager_exit"/);
   assert.match(powershell, /Stop-Proxy -Reason "restart"/);
+});
+
+test("supports three editable and persistent model mappings", async () => {
+  const [csharp, powershell, startProxy] = await Promise.all([
+    readFile(csharpPath, "utf8"),
+    readFile(powershellPath, "utf8"),
+    readFile(startProxyPath, "utf8"),
+  ]);
+
+  for (const source of [csharp, powershell]) {
+    assert.match(source, /HaikuAliasModel/);
+    assert.match(source, /HaikuTargetModel/);
+    assert.match(source, /claude-haiku-4-5/);
+    assert.match(source, /deepseek-v4-flash/);
+  }
+  assert.match(csharp, /x:Name=""HaikuAliasBox""/);
+  assert.match(csharp, /x:Name=""HaikuTargetBox""/);
+  assert.match(csharp, /三条映射的 Claude 模型 ID 不能重复/);
+  assert.match(powershell, /\$modelMap\[\$models\.HaikuAlias\] = \$models\.HaikuTarget/);
+  assert.match(startProxy, /\[string\]\$HaikuAliasModel = "claude-haiku-4-5"/);
+  assert.match(startProxy, /\$modelMap\[\$HaikuAliasModel\] = \$HaikuTargetModel/);
 });
 
 test("ships the Gateway manager controls and its external XAML fallback", async () => {
