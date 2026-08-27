@@ -1,18 +1,20 @@
 {
   "name": "DeepSeek Proxy Manager application icon",
-  "version": "1.6.11",
+  "version": "1.6.14",
   "design": "eight-segment circular route mark",
+  "palette": "monochrome grayscale",
   "direction": "lower-left light to upper-right deep",
-  "framing": "edge-to-edge on all four sides",
+  "framing": "centered with a subtle transparent inset",
+  "subjectScale": "93%",
   "segmentPaletteClockwiseFromTop": [
-    "#7799EE",
-    "#3559CF",
-    "#496FE2",
-    "#82A3F2",
-    "#B9CEFB",
-    "#DCE8FF",
-    "#CBDCFE",
-    "#AFC6FA"
+    "#6D6D6D",
+    "#080808",
+    "#191919",
+    "#818181",
+    "#DEDEDE",
+    "#F4F4F4",
+    "#F0F0F0",
+    "#D4D4D4"
   ],
   "mask": "DeepSeekProxyManager-icon-mask.png",
   "source": "DeepSeekProxyManager-icon.png",
@@ -21,5 +23,5 @@
     "DeepSeekProxyManager.ico",
     "DeepSeekProxyManager-icon-sizes.png"
   ],
-  "provenance": "The original eight-segment silhouette and transparency are preserved in the mask. The generator deterministically removes the mask's outer transparent padding, reapplies the approved directional palette, and removes isolated transparent-gap artifacts before exporting the edge-to-edge source PNG and Windows icon sizes."
+  "provenance": "The original eight-segment silhouette and transparency are preserved in the mask. The generator deterministically normalizes the mask, scales the subject to 93 percent with an even transparent inset, reapplies the approved monochrome directional palette, and removes isolated transparent-gap artifacts before exporting the source PNG and Windows icon sizes."
 }

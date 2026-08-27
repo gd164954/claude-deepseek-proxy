@@ -77,7 +77,7 @@ test("reduces long-running GUI rendering and polling work", async () => {
     readFile(powershellPath, "utf8"),
   ]);
 
-  assert.match(csharp, /AssemblyVersion\("1\.6\.11\.0"\)/);
+  assert.match(csharp, /AssemblyVersion\("1\.6\.14\.0"\)/);
   assert.match(csharp, /RenderOptions\.ProcessRenderMode = RenderMode\.SoftwareOnly/);
   assert.match(csharp, /foreground \? 10 : 45/);
   assert.match(csharp, /_lastStatusKind == kind/);

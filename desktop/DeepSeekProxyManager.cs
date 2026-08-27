@@ -25,8 +25,8 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("Native Windows manager for the local Claude-to-DeepSeek proxy")]
 [assembly: AssemblyCompany("Local")]
 [assembly: AssemblyProduct("DeepSeek Claude Proxy Manager")]
-[assembly: AssemblyVersion("1.6.11.0")]
-[assembly: AssemblyFileVersion("1.6.11.0")]
+[assembly: AssemblyVersion("1.6.14.0")]
+[assembly: AssemblyFileVersion("1.6.14.0")]
 
 namespace ClaudeDeepSeekProxyManager
 {

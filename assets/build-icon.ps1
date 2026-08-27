@@ -23,19 +23,20 @@ namespace DeepSeekProxy
 {
     public static class IconPaletteRenderer
     {
-        // Clockwise from the top: medium, darkest, deep, medium, light,
-        // lightest, light, medium-light. This creates a lower-left to
-        // upper-right diagonal progression while keeping every segment distinct.
+        // Clockwise from the top: medium gray, near black, dark gray,
+        // medium gray, light gray, near white, light gray, and soft gray.
+        // This creates the approved lower-left-light to upper-right-deep
+        // monochrome progression while keeping every segment distinct.
         private static readonly Color[] SegmentColors = new[]
         {
-            Color.FromArgb(0x77, 0x99, 0xEE),
-            Color.FromArgb(0x35, 0x59, 0xCF),
-            Color.FromArgb(0x49, 0x6F, 0xE2),
-            Color.FromArgb(0x82, 0xA3, 0xF2),
-            Color.FromArgb(0xB9, 0xCE, 0xFB),
-            Color.FromArgb(0xDC, 0xE8, 0xFF),
-            Color.FromArgb(0xCB, 0xDC, 0xFE),
-            Color.FromArgb(0xAF, 0xC6, 0xFA)
+            Color.FromArgb(0x6D, 0x6D, 0x6D),
+            Color.FromArgb(0x08, 0x08, 0x08),
+            Color.FromArgb(0x19, 0x19, 0x19),
+            Color.FromArgb(0x81, 0x81, 0x81),
+            Color.FromArgb(0xDE, 0xDE, 0xDE),
+            Color.FromArgb(0xF4, 0xF4, 0xF4),
+            Color.FromArgb(0xF0, 0xF0, 0xF0),
+            Color.FromArgb(0xD4, 0xD4, 0xD4)
         };
 
         public static Bitmap FillCanvas(Bitmap input)
@@ -65,6 +66,14 @@ namespace DeepSeekProxy
             using (Graphics graphics = Graphics.FromImage(output))
             using (ImageAttributes attributes = new ImageAttributes())
             {
+                const double subjectScale = 0.93;
+                int targetWidth = Math.Max(1, (int)Math.Round(input.Width * subjectScale));
+                int targetHeight = Math.Max(1, (int)Math.Round(input.Height * subjectScale));
+                if (((input.Width - targetWidth) & 1) != 0 && targetWidth < input.Width) targetWidth++;
+                if (((input.Height - targetHeight) & 1) != 0 && targetHeight < input.Height) targetHeight++;
+                int targetX = (input.Width - targetWidth) / 2;
+                int targetY = (input.Height - targetHeight) / 2;
+
                 graphics.Clear(Color.Transparent);
                 graphics.CompositingMode = CompositingMode.SourceCopy;
                 graphics.CompositingQuality = CompositingQuality.HighQuality;
@@ -74,7 +83,7 @@ namespace DeepSeekProxy
                 attributes.SetWrapMode(WrapMode.TileFlipXY);
                 graphics.DrawImage(
                     input,
-                    new Rectangle(0, 0, input.Width, input.Height),
+                    new Rectangle(targetX, targetY, targetWidth, targetHeight),
                     minX,
                     minY,
                     maxX - minX + 1,
@@ -338,7 +347,7 @@ try {
 }
 
 if (-not $PreserveInputColors) {
-  Write-Host "Applied palette: lower-left light to upper-right deep"
+  Write-Host "Applied palette: monochrome, lower-left light to upper-right deep"
 }
 Write-Host "Built source PNG: $OutputPng"
 Write-Host "Built icon: $OutputIco"

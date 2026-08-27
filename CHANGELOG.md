@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.6.14 - 2026-08-27
+
+- Refine the monochrome eight-segment icon subject scale from approximately 95 percent to exactly 93 percent.
+- Increase the even transparent inset to approximately 9 pixels at 256 x 256 while preserving the palette, shape, proportions, and gradient direction.
+
+## v1.6.13 - 2026-08-27
+
+- Reduce the eight-segment icon subject to approximately 95 percent while preserving the 256 x 256 canvas, monochrome palette, proportions, transparency, and gradient direction.
+- Add a subtle, even transparent inset so the icon has more visual breathing room in the window, taskbar, tray, and Explorer.
+
+## v1.6.12 - 2026-08-26
+
+- Adopt the selected eight-segment monochrome application icon with a lower-left-light to upper-right-deep grayscale progression.
+- Preserve the existing edge-to-edge silhouette, transparent background, inner opening, and small-size icon clarity across the EXE, window, taskbar, and tray surfaces.
+
 ## v1.6.11 - 2026-08-26
 
 - Expand the editable model routing panel from two mappings to three with a new Haiku route.
