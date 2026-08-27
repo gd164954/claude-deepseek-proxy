@@ -16,7 +16,7 @@ function luminance(hex) {
   return (0.2126 * red) + (0.7152 * green) + (0.0722 * blue);
 }
 
-test("ships the approved lower-left-light to upper-right-deep icon assets", async () => {
+test("ships the approved monochrome lower-left-light to upper-right-deep icon assets", async () => {
   const [manifestText, icon, source, mask, generator] = await Promise.all([
     readFile(manifestPath, "utf8"),
     readFile(iconPath),
@@ -26,10 +26,20 @@ test("ships the approved lower-left-light to upper-right-deep icon assets", asyn
   ]);
   const manifest = JSON.parse(manifestText);
 
-  assert.equal(manifest.version, "1.6.11");
+  assert.equal(manifest.version, "1.6.14");
+  assert.equal(manifest.palette, "monochrome grayscale");
   assert.equal(manifest.direction, "lower-left light to upper-right deep");
-  assert.equal(manifest.framing, "edge-to-edge on all four sides");
+  assert.equal(manifest.framing, "centered with a subtle transparent inset");
+  assert.equal(manifest.subjectScale, "93%");
   assert.equal(manifest.segmentPaletteClockwiseFromTop.length, 8);
+  assert.ok(
+    manifest.segmentPaletteClockwiseFromTop.every((color) => {
+      const value = color.replace("#", "");
+      return value.slice(0, 2) === value.slice(2, 4) &&
+        value.slice(2, 4) === value.slice(4, 6);
+    }),
+    "every segment color must be grayscale",
+  );
   assert.ok(
     luminance(manifest.segmentPaletteClockwiseFromTop[5]) >
       luminance(manifest.segmentPaletteClockwiseFromTop[1]),
@@ -43,5 +53,6 @@ test("ships the approved lower-left-light to upper-right-deep icon assets", asyn
   assert.equal(icon.readUInt16LE(2), 1);
   assert.equal(icon.readUInt16LE(4), 9);
   assert.match(generator, /public static Bitmap FillCanvas\(Bitmap input\)/);
-  assert.match(generator, /new Rectangle\(0, 0, input\.Width, input\.Height\)/);
+  assert.match(generator, /const double subjectScale = 0\.93/);
+  assert.match(generator, /new Rectangle\(targetX, targetY, targetWidth, targetHeight\)/);
 });

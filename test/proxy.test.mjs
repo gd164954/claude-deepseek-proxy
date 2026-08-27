@@ -206,7 +206,7 @@ test("enforces local browser isolation, body limits, and upstream timeouts", asy
   await waitForOutput(proxy, /INFO request_complete /);
   assert.match(proxy.getOutput(), /INFO upstream_response \{"request_id":"[^"]+","status":200,"path":"\/v1\/messages","ttfb_ms":\d+\}/);
   assert.match(proxy.getOutput(), /INFO request_complete \{"request_id":"[^"]+","status":200,"path":"\/v1\/messages","ttfb_ms":\d+,"duration_ms":\d+\}/);
-  assert.match(proxy.getOutput(), /INFO startup \{"version":"1\.6\.11","pid":\d+,"node":"v[^\"]+","host":"127\.0\.0\.1","port":\d+\}/);
+  assert.match(proxy.getOutput(), /INFO startup \{"version":"1\.6\.14","pid":\d+,"node":"v[^\"]+","host":"127\.0\.0\.1","port":\d+\}/);
 
   const tooLarge = await fetch(`${baseUrl}/v1/messages/count_tokens`, {
     method: "POST",
@@ -228,8 +228,8 @@ test("enforces local browser isolation, body limits, and upstream timeouts", asy
   assert.match((await timedOut.json()).error.message, /timed out/i);
 
   await stopProxy(proxy, "test_complete");
-  assert.match(proxy.getOutput(), /INFO shutdown_requested \{"version":"1\.6\.11","pid":\d+,"reason":"test_complete","uptime_ms":\d+\}/);
-  assert.match(proxy.getOutput(), /INFO shutdown_complete \{"version":"1\.6\.11","pid":\d+,"reason":"test_complete","uptime_ms":\d+,"exit_code":0\}/);
+  assert.match(proxy.getOutput(), /INFO shutdown_requested \{"version":"1\.6\.14","pid":\d+,"reason":"test_complete","uptime_ms":\d+\}/);
+  assert.match(proxy.getOutput(), /INFO shutdown_complete \{"version":"1\.6\.14","pid":\d+,"reason":"test_complete","uptime_ms":\d+,"exit_code":0\}/);
 });
 
 test("requires Gateway authentication for localhost health and model endpoints", async (t) => {
