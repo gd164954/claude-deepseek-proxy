@@ -25,8 +25,9 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("Native Windows manager for the local Claude-to-DeepSeek proxy")]
 [assembly: AssemblyCompany("Local")]
 [assembly: AssemblyProduct("DeepSeek Claude Proxy Manager")]
-[assembly: AssemblyVersion("1.6.14.0")]
-[assembly: AssemblyFileVersion("1.6.14.0")]
+[assembly: AssemblyVersion("1.7.0.0")]
+[assembly: AssemblyFileVersion("1.7.0.0")]
+[assembly: AssemblyInformationalVersion("1.7.00")]
 
 namespace ClaudeDeepSeekProxyManager
 {
@@ -115,6 +116,8 @@ namespace ClaudeDeepSeekProxyManager
         private DispatcherTimer _healthTimer;
         private DispatcherTimer _logTimer;
         private bool _refreshingHealth;
+        private const int HealthFailureThreshold = 3;
+        private int _consecutiveHealthFailures;
         private bool _exiting;
         private bool _externalProxyDetected;
         private StatusKind? _lastStatusKind;
@@ -357,10 +360,11 @@ namespace ClaudeDeepSeekProxyManager
             ReleaseExitedProxyProcess();
             if (_proxyProcess != null && !_proxyProcess.HasExited)
             {
-                ShowTransientStatus("代理已经运行", "当前进程由本管理器启动。", StatusKind.Success);
+                await RefreshHealthAsync();
                 return;
             }
 
+            _consecutiveHealthFailures = 0;
             if (await IsProxyHealthyAsync())
             {
                 _externalProxyDetected = true;
@@ -456,6 +460,7 @@ namespace ClaudeDeepSeekProxyManager
                     if (_proxyProcess.HasExited) break;
                     if (await IsProxyHealthyAsync())
                     {
+                        _consecutiveHealthFailures = 0;
                         _externalProxyDetected = false;
                         SetStatus(StatusKind.Success, "代理已运行", "http://127.0.0.1:" + port + " · Node " + nodeVersion);
                         UpdateButtonState(true, true);
@@ -496,6 +501,7 @@ namespace ClaudeDeepSeekProxyManager
 
         private void StopOwnedProxy(string reason = "manual_stop")
         {
+            _consecutiveHealthFailures = 0;
             ReleaseExitedProxyProcess();
             if (_proxyProcess == null || _proxyProcess.HasExited)
             {
@@ -565,6 +571,7 @@ namespace ClaudeDeepSeekProxyManager
             try
             {
                 var healthy = await IsProxyHealthyAsync();
+                if (healthy) _consecutiveHealthFailures = 0;
                 var modelsAvailable = healthy && await IsProxyModelsAvailableAsync();
                 if (modelsAvailable)
                 {
@@ -594,26 +601,56 @@ namespace ClaudeDeepSeekProxyManager
             _refreshingHealth = true;
             try
             {
+                var checkedProcess = _proxyProcess;
                 if (_proxyProcess != null && _proxyProcess.HasExited)
                 {
                     ReleaseExitedProxyProcess();
+                    _consecutiveHealthFailures = 0;
                     _externalProxyDetected = false;
                     SetStatus(StatusKind.Error, "代理意外退出", "请查看日志了解详细原因，然后重新启动。");
                     UpdateButtonState(false, false);
                     return;
                 }
                 var healthy = await IsProxyHealthyAsync();
+                // A pending probe must not overwrite a stop, exit, or restart.
+                if (_exiting || !ReferenceEquals(checkedProcess, _proxyProcess)) return;
+                if (_proxyProcess != null && _proxyProcess.HasExited)
+                {
+                    ReleaseExitedProxyProcess();
+                    _consecutiveHealthFailures = 0;
+                    _externalProxyDetected = false;
+                    SetStatus(StatusKind.Error, "代理意外退出", "请查看日志了解详细原因，然后重新启动。");
+                    UpdateButtonState(false, false);
+                    return;
+                }
                 var owned = _proxyProcess != null && !_proxyProcess.HasExited;
                 if (healthy)
                 {
+                    _consecutiveHealthFailures = 0;
                     _externalProxyDetected = !owned;
                     int port;
                     TryGetPortSilently(out port);
                     SetStatus(StatusKind.Success, "代理已运行", "http://127.0.0.1:" + port + (owned ? " · 由本管理器启动" : " · 外部进程"));
                     UpdateButtonState(true, owned);
                 }
-                else if (!owned)
+                else if (owned)
                 {
+                    _externalProxyDetected = false;
+                    _consecutiveHealthFailures = Math.Min(_consecutiveHealthFailures + 1, HealthFailureThreshold);
+                    if (_consecutiveHealthFailures >= HealthFailureThreshold)
+                    {
+                        SetStatus(StatusKind.Error, "代理无响应", "进程仍在运行，但连续 3 次健康检查失败。请检查端口和 Gateway Key，或尝试重启代理。");
+                    }
+                    else
+                    {
+                        SetStatus(StatusKind.Starting, "正在确认代理状态", "健康检查暂未通过（" + _consecutiveHealthFailures + "/" + HealthFailureThreshold + "），正在自动复查…");
+                    }
+                    // Keep stop/restart available and prevent duplicate starts.
+                    UpdateButtonState(true, true);
+                }
+                else
+                {
+                    _consecutiveHealthFailures = 0;
                     _externalProxyDetected = false;
                     SetStatus(StatusKind.Stopped, "代理未运行", "输入 API Key 后即可一键启动。" );
                     UpdateButtonState(false, false);
@@ -705,6 +742,7 @@ namespace ClaudeDeepSeekProxyManager
                 if (_exiting || _proxyProcess == null || !ReferenceEquals(exitedProcess, _proxyProcess)) return;
                 _proxyProcess = null;
                 exitedProcess.Dispose();
+                _consecutiveHealthFailures = 0;
                 _externalProxyDetected = false;
                 SetStatus(StatusKind.Error, "代理意外退出", "请查看日志了解详细原因，然后重新启动。" );
                 UpdateButtonState(false, false);
@@ -1343,6 +1381,7 @@ namespace ClaudeDeepSeekProxyManager
 
             var exited = _proxyProcess;
             _proxyProcess = null;
+            _consecutiveHealthFailures = 0;
             exited.Dispose();
         }
 

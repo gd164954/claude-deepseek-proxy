@@ -1,5 +1,14 @@
 # Changelog
 
+## V1.7.00 - 2026-08-31
+
+- Show an explicit checking state after transient health failures and an unresponsive state after three consecutive failures while the owned proxy process is still alive, in both GUI launchers.
+- Preserve stop/restart controls, reset failure counts on recovery and lifecycle changes, and ignore stale asynchronous probe results after stop, exit, or restart.
+- Drain native resources on normal shutdown instead of forcing an immediate exit, avoiding a reproduced Windows Node.js assertion after short-lived requests; retain the shutdown timeout fallback.
+- Add bounded request/upstream model IDs and client/upstream streaming flags to request start, completion, and failure logs without recording conversation content.
+- Cover health-state transitions, metadata, passthrough models, forced non-stream requests, HTTP errors, timeouts, client cancellation, log redaction, immediate shutdown, in-flight stream draining, and listener-error exit with regression tests.
+- Retain the v1.6.14 monochrome icon at 93 percent scale and the existing UI layout.
+
 ## v1.6.14 - 2026-08-27
 
 - Refine the monochrome eight-segment icon subject scale from approximately 95 percent to exactly 93 percent.
