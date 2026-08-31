@@ -12,6 +12,10 @@ Local Anthropic-compatible proxy for Claude Desktop 3P mode. It keeps Claude-fac
 
 The graphical manager provides three fully editable model mappings on both sides, encrypted DeepSeek and Gateway key storage, one-click start/stop/restart, health checks, a clearly displayed local endpoint with one-click copy, a separate log window, system-tray operation, and optional Windows login startup. Claude-facing and DeepSeek-facing model IDs are saved for the current Windows account and applied on the next proxy start.
 
+If an owned proxy process remains alive but its health check fails, the manager shows a checking state for the first two consecutive failures and an unresponsive state on the third. Stop and restart remain available; a successful check resets the failure count and restores the normal status automatically. The existing polling interval stays at 10 seconds in the foreground and 45 seconds when minimized or hidden. The manager does not restart or terminate the proxy automatically.
+
+On a requested stop, the proxy lets active responses finish within the existing 2.5-second shutdown deadline, flushes its logs, and allows native resources to drain before exiting. This avoids a Windows Node.js assertion reproduced when forcing an immediate exit just after upstream requests. The timeout fallback remains in place for a stuck shutdown.
+
 ![DeepSeek Proxy Manager](docs/DeepSeekProxyManager.png)
 
 Download the current portable Windows x64 package from [GitHub Releases](https://github.com/gd164954/claude-deepseek-proxy/releases/latest). Extract the ZIP to a normal writable folder and keep all files together. The portable package already contains Node.js.
@@ -131,15 +135,18 @@ Invoke-RestMethod `
 Successful runtime logs look like:
 
 ```text
-startup {"version":"1.6.14","pid":1234,"node":"v22.x.x","host":"127.0.0.1","port":3210}
+startup {"version":"1.7.00","pid":1234,"node":"v22.x.x","host":"127.0.0.1","port":3210}
+request_start {"request_id":"...","path":"/v1/messages","requested_model":"claude-sonnet-4-5","upstream_model":"deepseek-v4-flash","stream":true,"upstream_stream":true}
 model_rewrite {"request_id":"...","rewrite":"claude-sonnet-4-5 -> deepseek-v4-flash"}
 upstream_response {"request_id":"...","status":200,"path":"/v1/messages","ttfb_ms":184}
-request_complete {"request_id":"...","status":200,"path":"/v1/messages","ttfb_ms":184,"duration_ms":1260}
-shutdown_requested {"version":"1.6.14","pid":1234,"reason":"manager_exit","uptime_ms":3600000}
-shutdown_complete {"version":"1.6.14","pid":1234,"reason":"manager_exit","uptime_ms":3600012,"exit_code":0}
+request_complete {"request_id":"...","status":200,"path":"/v1/messages","ttfb_ms":184,"duration_ms":1260,"requested_model":"claude-sonnet-4-5","upstream_model":"deepseek-v4-flash","stream":true,"upstream_stream":true}
+shutdown_requested {"version":"1.7.00","pid":1234,"reason":"manager_exit","uptime_ms":3600000}
+shutdown_complete {"version":"1.7.00","pid":1234,"reason":"manager_exit","uptime_ms":3600012,"exit_code":0}
 ```
 
 `ttfb_ms` measures the time until upstream response headers arrive; `duration_ms` on `request_complete` measures the full request, including streamed output. Client cancellations are recorded separately as `client_disconnected` instead of being reported as proxy failures. Startup and shutdown entries include the proxy version, PID, uptime, and the manager-provided stop or restart reason.
+
+`request_start`, `request_complete`, and failures after the request body has been read include `requested_model`, `upstream_model`, `stream` (the client's request), and `upstream_stream` (the forwarded request). This also covers models passed through without a mapping; forced non-stream mode records the difference explicitly. Missing model IDs are `null`; invalid or oversized identifiers and known credential values are redacted. These fields do not include prompts, system text, or response content.
 
 By default, the high-frequency local token-count requests are not written to the log. To debug them temporarily, add:
 

@@ -64,7 +64,7 @@ const UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS || 120_000);
 const TRANSFORM_RESPONSES = process.env.TRANSFORM_RESPONSES === "true";
 const FILTER_THINKING_BLOCKS = process.env.FILTER_THINKING_BLOCKS === "true";
 const FORCE_UPSTREAM_NON_STREAM = process.env.FORCE_UPSTREAM_NON_STREAM === "true";
-const APP_VERSION = "1.6.14";
+const APP_VERSION = "1.7.00";
 const PROCESS_STARTED_AT = Date.now();
 
 if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
@@ -272,7 +272,7 @@ function parseJsonRequestBody(buffer, contentType) {
 
 function rewriteRequestBodyWithOptions(buffer, contentType, options = {}) {
   const json = parseJsonRequestBody(buffer, contentType);
-  if (!json) return { bufferInfo: { buffer, note: null }, didForceNonStream: false };
+  if (!json) return { bufferInfo: { buffer, note: null }, didForceNonStream: false, upstreamModel: null, upstreamStream: false };
 
   let changed = false;
   let note = null;
@@ -296,7 +296,19 @@ function rewriteRequestBodyWithOptions(buffer, contentType, options = {}) {
       note,
     },
     didForceNonStream,
+    upstreamModel: typeof json.model === "string" ? json.model : null,
+    upstreamStream: json.stream === true,
   };
+}
+
+function modelIdForLog(model) {
+  if (model === null) return null;
+  // Log only bounded model identifiers, never arbitrary text or known keys.
+  if (typeof model !== "string" || !/^[a-zA-Z0-9._:/-]{1,128}$/.test(model) ||
+      /^sk-/i.test(model) || model === API_KEY || model === PROXY_API_KEY) {
+    return "[redacted]";
+  }
+  return model;
 }
 
 function modelFromRequestBody(buffer, contentType) {
@@ -648,12 +660,19 @@ async function handleProxy(req, res, context) {
     url.pathname === "/v1/messages" &&
     wantsStream &&
     Boolean(aliasModel);
-  const { bufferInfo, didForceNonStream } = rewriteRequestBodyWithOptions(rawBody, req.headers["content-type"], {
+  const { bufferInfo, didForceNonStream, upstreamModel, upstreamStream } = rewriteRequestBodyWithOptions(rawBody, req.headers["content-type"], {
     forceNonStream,
   });
   const { buffer: body, note } = bufferInfo;
-  if (note) logLine("INFO", "model_rewrite", { request_id: requestId, rewrite: note });
-  if (didForceNonStream) logLine("INFO", "force_upstream_non_stream", { request_id: requestId, path: url.pathname, model: aliasModel });
+  context.requestMetadata = {
+    requested_model: modelIdForLog(aliasModel),
+    upstream_model: modelIdForLog(upstreamModel),
+    stream: wantsStream,
+    upstream_stream: upstreamStream,
+  };
+  logLine("INFO", "request_start", { request_id: requestId, path: url.pathname, ...context.requestMetadata });
+  if (note) logLine("INFO", "model_rewrite", { request_id: requestId, rewrite: `${context.requestMetadata.requested_model} -> ${context.requestMetadata.upstream_model}` });
+  if (didForceNonStream) logLine("INFO", "force_upstream_non_stream", { request_id: requestId, path: url.pathname, model: context.requestMetadata.requested_model });
 
   const upstreamUrl = `${UPSTREAM_BASE}${url.pathname}${url.search}`;
   const abortController = new AbortController();
@@ -696,6 +715,7 @@ async function handleProxy(req, res, context) {
         path: url.pathname,
         ttfb_ms: ttfbMs,
         duration_ms: Date.now() - startedAt,
+        ...context.requestMetadata,
         ...extra,
       });
     };
@@ -769,6 +789,7 @@ export function handleRequest(req, res) {
       path: context.path,
       ttfb_ms: context.ttfbMs,
       duration_ms: Date.now() - context.startedAt,
+      ...context.requestMetadata,
       error: describeError(error),
     };
     if (context.clientDisconnected || req.aborted || res.destroyed) {
@@ -798,6 +819,15 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   let shuttingDown = false;
   let shutdownTimer;
 
+  const finishGracefully = async (exitCode) => {
+    await flushLogs();
+    process.exitCode = exitCode;
+    // Let fetch/native handles drain instead of forcing Windows libuv teardown.
+    // The manager's still-open control pipe must not keep the process alive.
+    process.stdin.pause();
+    process.stdin.unref?.();
+  };
+
   const shutdown = (reason, exitCode = 0, details = {}) => {
     if (shuttingDown) return;
     shuttingDown = true;
@@ -823,7 +853,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     shutdownTimer.unref?.();
 
     server.close(async (error) => {
-      clearTimeout(shutdownTimer);
+      // Keep the unreferenced deadline as a fallback during native cleanup.
       const finalExitCode = error ? 1 : exitCode;
       logLine(error ? "ERROR" : "INFO", "shutdown_complete", {
         version: APP_VERSION,
@@ -833,8 +863,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
         exit_code: finalExitCode,
         ...(error ? { error: describeError(error) } : {}),
       });
-      await flushLogs();
-      process.exit(finalExitCode);
+      await finishGracefully(finalExitCode);
     });
   };
 
@@ -873,8 +902,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
       uptime_ms: Date.now() - PROCESS_STARTED_AT,
       error: describeError(error),
     });
-    await flushLogs();
-    if (!shuttingDown) process.exit(1);
+    if (!shuttingDown) await finishGracefully(1);
+    else await flushLogs();
   });
 
   server.listen(PORT, HOST, () => {

@@ -28,6 +28,8 @@ $script:runPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
 $script:runValueName = "ClaudeDeepSeekProxyManager"
 $script:ownedProcess = $null
 $script:externalProxy = $false
+$script:healthFailureThreshold = 3
+$script:consecutiveHealthFailures = 0
 $script:exiting = $false
 $script:lastLogText = ""
 $script:nodePath = ""
@@ -467,7 +469,8 @@ function Update-Buttons([bool]$Running, [bool]$Owned) {
 }
 
 function Start-Proxy {
-  if ($script:ownedProcess -and -not $script:ownedProcess.HasExited) { return }
+  if ($script:ownedProcess -and -not $script:ownedProcess.HasExited) { Refresh-Health; return }
+  $script:consecutiveHealthFailures = 0
   if (Test-ProxyHealth) {
     $script:externalProxy = $true
     Set-Status Success "代理已运行" "检测到端口上的外部代理；管理器不会强制接管。"
@@ -529,6 +532,7 @@ function Start-Proxy {
 }
 
 function Stop-Proxy([string]$Reason = "manual_stop") {
+  $script:consecutiveHealthFailures = 0
   if (-not $script:ownedProcess -or $script:ownedProcess.HasExited) {
     if ($script:externalProxy) { Set-Status Success "代理已运行" "该代理不是由本管理器启动，请关闭原 PowerShell 窗口。" }
     else { Set-Status Stopped "代理已停止" "可以安全修改端口或 API Key。" }
@@ -566,15 +570,29 @@ function Refresh-Health {
   $owned = $script:ownedProcess -and -not $script:ownedProcess.HasExited
   if ($script:ownedProcess -and $script:ownedProcess.HasExited) {
     $script:ownedProcess.Dispose(); $script:ownedProcess = $null
+    $script:consecutiveHealthFailures = 0
+    $script:externalProxy = $false
     Set-Status Error "代理意外退出" "请查看日志了解详细原因，然后重新启动。"
     Update-Buttons $false $false
     return
   }
   if (Test-ProxyHealth) {
+    $script:consecutiveHealthFailures = 0
     $script:externalProxy = -not $owned
     Set-Status Success "代理已运行" "http://127.0.0.1:$($portBox.Text) · $(if ($owned) { '由本管理器启动' } else { '外部进程' })"
     Update-Buttons $true $owned
-  } elseif (-not $owned) {
+  } elseif ($owned) {
+    $script:externalProxy = $false
+    $script:consecutiveHealthFailures = [Math]::Min($script:consecutiveHealthFailures + 1, $script:healthFailureThreshold)
+    if ($script:consecutiveHealthFailures -ge $script:healthFailureThreshold) {
+      Set-Status Error "代理无响应" "进程仍在运行，但连续 3 次健康检查失败。请检查端口和 Gateway Key，或尝试重启代理。"
+    } else {
+      Set-Status Starting "正在确认代理状态" "健康检查暂未通过（$($script:consecutiveHealthFailures)/$($script:healthFailureThreshold)），正在自动复查…"
+    }
+    # Keep stop/restart available and prevent duplicate starts.
+    Update-Buttons $true $true
+  } else {
+    $script:consecutiveHealthFailures = 0
     $script:externalProxy = $false
     Set-Status Stopped "代理未运行" "输入 API Key 后即可一键启动。"
     Update-Buttons $false $false
@@ -700,6 +718,7 @@ $stopButton.add_Click({ Stop-Proxy })
 $restartButton.add_Click({ if ($script:externalProxy) { [Windows.MessageBox]::Show("当前代理不是由本管理器启动，无法安全重启。", "无法接管", "OK", "Information") | Out-Null } else { Stop-Proxy -Reason "restart"; Start-Sleep -Milliseconds 300; Start-Proxy } })
 $testButton.add_Click({
   $healthy = Test-ProxyHealth
+  if ($healthy) { $script:consecutiveHealthFailures = 0 }
   $modelsAvailable = $healthy -and (Test-ProxyModels)
   if ($modelsAvailable) {
     Set-Status Success "连接正常" "本地健康检查和模型列表均可访问。"
